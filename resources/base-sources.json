@@ -1,0 +1,164 @@
+[
+  {
+    "id": "euraxess",
+    "name": "EURAXESS",
+    "region": "Europe",
+    "base": "https://euraxess.ec.europa.eu",
+    "query": "/jobs/search?keywords=",
+    "kind": "board"
+  },
+  {
+    "id": "jobsac",
+    "name": "jobs.ac.uk",
+    "region": "Europe",
+    "base": "https://www.jobs.ac.uk",
+    "query": "/search/?keywords=",
+    "kind": "board"
+  },
+  {
+    "id": "academicpositions",
+    "name": "Academic Positions",
+    "region": "Europe",
+    "base": "https://academicpositions.com",
+    "query": "/find-jobs?keyword=",
+    "kind": "board"
+  },
+  {
+    "id": "academictransfer",
+    "name": "AcademicTransfer",
+    "region": "Europe",
+    "countries": [
+      "Netherlands"
+    ],
+    "base": "https://www.academictransfer.com",
+    "query": "/en/jobs/?q=",
+    "kind": "board"
+  },
+  {
+    "id": "jobbnorge",
+    "name": "Jobbnorge",
+    "region": "Europe",
+    "countries": [
+      "Norway"
+    ],
+    "base": "https://www.jobbnorge.no",
+    "query": "/search/en?term=",
+    "kind": "board"
+  },
+  {
+    "id": "academics",
+    "name": "academics.de",
+    "region": "Europe",
+    "countries": [
+      "Germany"
+    ],
+    "base": "https://www.academics.de",
+    "query": "/jobs?keyword=",
+    "kind": "board"
+  },
+  {
+    "id": "cnrs",
+    "name": "CNRS",
+    "region": "Europe",
+    "countries": [
+      "France"
+    ],
+    "base": "https://emploi.cnrs.fr",
+    "query": "/Offres.aspx?strKeyword=",
+    "kind": "institution"
+  },
+  {
+    "id": "uniroles",
+    "name": "Uni Roles",
+    "region": "Australia",
+    "countries": [
+      "Australia"
+    ],
+    "publicIndex": true,
+    "base": "https://uniroles.com.au",
+    "query": "/?q=",
+    "kind": "board"
+  },
+  {
+    "id": "seek",
+    "name": "SEEK Australia",
+    "region": "Australia",
+    "base": "https://www.seek.com.au",
+    "query": "/jobs?keywords=",
+    "kind": "board"
+  },
+  {
+    "id": "the",
+    "name": "THE UniJobs",
+    "region": "All",
+    "base": "https://www.timeshighereducation.com",
+    "query": "/unijobs/listings/?Keywords=",
+    "kind": "board"
+  },
+  {
+    "id": "kaust",
+    "name": "KAUST careers",
+    "region": "Gulf",
+    "countries": [
+      "Saudi Arabia"
+    ],
+    "base": "https://careers.kaust.edu.sa",
+    "query": "/search/?q=",
+    "kind": "institution"
+  },
+  {
+    "id": "qatar",
+    "name": "Qatar University careers",
+    "region": "Gulf",
+    "countries": [
+      "Qatar"
+    ],
+    "base": "https://careers.qu.edu.qa",
+    "query": "/?search=",
+    "kind": "institution"
+  },
+  {
+    "id": "khalifa",
+    "name": "Khalifa University careers",
+    "region": "Gulf",
+    "countries": [
+      "United Arab Emirates"
+    ],
+    "base": "https://www.ku.ac.ae",
+    "query": "/careers?search=",
+    "kind": "institution"
+  },
+  {
+    "id": "squ",
+    "name": "Sultan Qaboos University careers",
+    "region": "Gulf",
+    "countries": [
+      "Oman"
+    ],
+    "base": "https://www.squ.edu.om",
+    "query": "/About/Employment?search=",
+    "kind": "institution"
+  },
+  {
+    "id": "kuwait",
+    "name": "Kuwait University careers",
+    "region": "Gulf",
+    "countries": [
+      "Kuwait"
+    ],
+    "base": "https://www.ku.edu.kw",
+    "query": "/careers?search=",
+    "kind": "institution"
+  },
+  {
+    "id": "bahrain",
+    "name": "University of Bahrain careers",
+    "region": "Gulf",
+    "countries": [
+      "Bahrain"
+    ],
+    "base": "https://www.uob.edu.bh",
+    "query": "/careers/?search=",
+    "kind": "institution"
+  }
+]
