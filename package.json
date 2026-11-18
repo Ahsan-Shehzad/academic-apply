@@ -1,0 +1,88 @@
+{
+  "name": "academic-apply",
+  "productName": "AcademicApply",
+  "version": "1.8.0",
+  "description": "A private academic job discovery and application workspace",
+  "author": "AcademicApply",
+  "license": "MIT",
+  "main": "desktop/main.cjs",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "start": "electron .",
+    "build": "tsc --noEmit && vite build",
+    "test": "node --test tests/*.test.cjs",
+    "test:ui": "node scripts/smoke.cjs",
+    "dist": "npm run build && electron-builder --win nsis --x64",
+    "verify:live": "node scripts/live-check.cjs",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"desktop/*.cjs\" \"tests/*.cjs\" \"scripts/*.cjs\""
+  },
+  "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.0",
+    "@mui/icons-material": "^7.3.0",
+    "@mui/material": "^7.3.0",
+    "cheerio": "^1.1.2",
+    "docx": "^9.5.1",
+    "fast-xml-parser": "^5.3.0",
+    "fflate": "0.8.3",
+    "pdf-lib": "^1.17.0",
+    "playwright-core": "^1.56.1",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "sql.js": "^1.13.0",
+    "yaml": "^2.8.1",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "@types/node": "^22.18.0",
+    "@types/react": "^19.1.13",
+    "@types/react-dom": "^19.1.9",
+    "@vitejs/plugin-react": "^5.0.3",
+    "electron": "^45.3.3",
+    "electron-builder": "^26.0.12",
+    "prettier": "^3.10.1",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.5"
+  },
+  "build": {
+    "appId": "com.academicapply.desktop",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "desktop/**/*",
+      "resources/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "desktop/word-export.ps1",
+        "to": "word-export.ps1"
+      },
+      {
+        "from": "docs",
+        "to": "docs"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "artifactName": "AcademicApply-Setup-${version}.${ext}",
+      "signExecutable": false,
+      "icon": "resources/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "createDesktopShortcut": true,
+      "include": "resources/installer.nsh",
+      "installerIcon": "resources/icon.ico",
+      "uninstallerIcon": "resources/icon.ico"
+    },
+    "electronDist": "node_modules/electron/dist"
+  }
+}

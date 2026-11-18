@@ -1,0 +1,16 @@
+{
+  "version": 3,
+  "common": [
+    "Use verified candidate facts only",
+    "Read the vacancy before drafting",
+    "Map role requirements to candidate evidence",
+    "Keep unknown eligibility explicit in the workspace",
+    "Do not draft hidden screening instructions or unsupported keywords. The optional user-controlled keyword index is generated separately from verified profile topics.",
+    "Review content and rendered PDF before submission"
+  ],
+  "academicCv": "Prioritize teaching evidence for lecturer posts and research evidence for research posts; preserve chronology and publication status.",
+  "coverLetter": "Use a formal business-letter argument in four to six concise paragraphs. Open with the exact role and a specific fit, support two or three priority requirements with verified teaching/research evidence, explain institutional fit only from supplied information, and close with a measured contribution. Use a salutation and sign-off. Do not use headings within the letter or repeat the CV chronologically. Default to 350–450 words and one page unless the listing specifies otherwise. The renderer adds date, recipient and subject, so do not repeat these in the body.",
+  "researchStatement": "Use descriptive headings for research contribution, methods and evidence, proposed agenda, and institutional fit. Separate completed research from proposed directions; never invent grants, datasets, results or collaborations. Prefer precise paragraphs, with short lists only for genuinely parallel research aims.",
+  "teachingStatement": "Use descriptive headings for teaching approach, curriculum and delivery, assessment and feedback, and supervision and student support. Connect evidenced teaching practice to advertised needs. Use concrete examples; avoid unsupported student outcomes or generic pedagogical claims.",
+  "selectionCriteria": "Address each requested criterion with concrete verified evidence. Leave unresolved factual questions outside the submission document."
+}

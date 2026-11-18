@@ -1,0 +1,39 @@
+# Dependencies and generated application builds
+/node_modules/
+/dist/
+/release-*/
+/release/*
+!/release/README.md
+!/release/SHA256SUMS.txt
+!/release/VALIDATION.md
+
+# Local tests, diagnostics, candidate files and workspace backups
+/.test-data/
+/qa/
+/local-backups/
+/Job-application-related-data/
+/ai-workspace/
+/chrome-profile/
+*.log
+*.sqlite
+*.sqlite.*
+*.db
+*.db-*
+
+# Secrets and machine-local settings
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+/credentials*.json
+/auth*.json
+
+# Editor and operating system files
+/.idea/
+/.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.tmp
+*.bak
