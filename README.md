@@ -106,6 +106,8 @@ Apply that cleanup locally:
 
 The script validates retained delivery checksums and target paths first. It preserves source, Git history, `qa/` backups, the installed application, personal candidate records and the 1.8.0/1.7.0 deliveries. It removes local dependencies, which can be restored with `npm ci`.
 
+Locked targets retry up to three times and then remain pending while the other targets continue. The report in `qa/workspace-cleanup.json` includes actual reclaimed bytes and pending paths. Close applications using those paths, or wait for background file scanning to finish, and rerun the same command. The script does not force-close processes. Its cleanup behavior can be checked without deleting files using `scripts/clean-workspace.test.ps1`.
+
 ## Project structure
 
 | Path | Purpose |
