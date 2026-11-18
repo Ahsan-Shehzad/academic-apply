@@ -6,9 +6,9 @@ A Windows desktop application for academic job discovery, tailored submission pa
 
 ## Install
 
-Run [AcademicApply Setup 1.8.0](release/AcademicApply-Setup-1.8.0.exe). The installer is currently unsigned. A previous installer is retained locally for rollback; see [release files](release/README.md) for checksums and distribution details.
+Download [AcademicApply Setup 1.8.0](https://github.com/Ahsan-Shehzad/academic-apply/releases/download/v1.8.0/AcademicApply-Setup-1.8.0.exe) from [GitHub Releases](https://github.com/Ahsan-Shehzad/academic-apply/releases). The installer is currently unsigned. Version 1.7.0 is also available for rollback; see [release files](release/README.md) for checksums and distribution details.
 
-Installers and source archives are local delivery files and are excluded from Git. When published on GitHub, distribute installers as GitHub Release assets. A source-only clone must be built using the development instructions below.
+Installers and prepared source archives are distributed as GitHub Release assets and excluded from Git history. A source-only clone must be built using the development instructions below. Local delivery copies are kept in `release/`.
 
 ### Requirements
 
@@ -135,7 +135,14 @@ Background scheduling checks due searches every 30 minutes and at Windows sign-i
 
 The repository uses `main`. Source, tests, documentation and the dependency lockfile belong in Git; installers, caches, generated documents and personal data do not. Publish binary delivery files as release assets rather than adding them with `git add -f`.
 
-No remote is configured by this setup. When ready, create the GitHub repository, add its remote, push `main` and publish the installer and checksums in a GitHub Release. Review staged changes with `git diff --cached` before publishing.
+The repository is hosted at [Ahsan-Shehzad/academic-apply](https://github.com/Ahsan-Shehzad/academic-apply). Clone it with:
+
+```powershell
+git clone https://github.com/Ahsan-Shehzad/academic-apply.git
+cd academic-apply
+```
+
+Release tags identify the corresponding source snapshots. Windows installers, prepared source archives, blockmaps and per-version SHA-256 checksums are attached to [GitHub Releases](https://github.com/Ahsan-Shehzad/academic-apply/releases). Review staged changes with `git diff --cached` before publishing updates.
 
 ## License
 
