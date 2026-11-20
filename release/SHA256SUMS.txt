@@ -1,6 +1,6 @@
+1a08ae7f7a7d142c7f56748b41a1b7c46f7cd3d087f85c260d24495a3b580445  AcademicApply-Setup-1.9.0.exe
+67a6a1247fa6d9dbbec9444536bc636d6edac7449265359baf4b6986ee138593  AcademicApply-Setup-1.9.0.exe.blockmap
+8d250e24ef5d10f42489e22727c37b61be18ca48c3d7e58f99c95dc6e041ae89  AcademicApply-Source-1.9.0.zip
 09617c53c5c21ef4bc35d9a6cd25917109cf79685a1e9f4af66aba246031da5e  AcademicApply-Setup-1.8.0.exe
 a2995cd2edcc3b0539d3f58e801b10b995c221a9e03e2d91cd6fd8a864fb9cbf  AcademicApply-Setup-1.8.0.exe.blockmap
 1f19cce882fc7d467f4e07cd6e6bd9878e0f28353c212322cf4237f6acfb1cef  AcademicApply-Source-1.8.0.zip
-080243bb7b12a6d30da409e295fc249096c232e4271e5e9cf652700876f8abdb  AcademicApply-Setup-1.7.0.exe
-ba06cd377b262d8723d7a3f9df968dc3ac83e4c1594ffdb30f5882070c381a49  AcademicApply-Setup-1.7.0.exe.blockmap
-2bb30b234820a84a3406729b24e8a4f86f45a365d59a7d07afbcbd2e223b003b  AcademicApply-Source-1.7.0.zip

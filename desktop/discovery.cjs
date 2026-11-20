@@ -280,9 +280,28 @@ function inferCountry(text) {
 function deadlineValue(raw) {
   if (!raw) return null;
   const s = String(raw);
-  if (/^\d{4}-\d{2}-\d{2}/.test(s))
-    return /(?:Z|[+-]\d\d:\d\d)$/.test(s) ? s : s.slice(0, 10);
-  const parsed = Date.parse(s);
+  const date =
+    s.match(/\b\d{4}-\d{2}-\d{2}(?:T[\d:.]+(?:Z|[+-]\d\d:\d\d)?)?/i)?.[0] ||
+    s.match(
+      /\b\d{1,2}(?:st|nd|rd|th)?\s+(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\s+\d{4}\b/i,
+    )?.[0] ||
+    s.match(
+      /\b(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4}\b/i,
+    )?.[0];
+  if (!date) return null;
+  const normalized = date.replace(/(\d)(?:st|nd|rd|th)\b/gi, "$1");
+  const parsed = Date.parse(
+    /^\d{4}-/.test(normalized) ? normalized : normalized + " UTC",
+  );
+  if (/^\d{4}-\d{2}-\d{2}/.test(date)) {
+    if (
+      !Number.isFinite(parsed) ||
+      new Date(date.slice(0, 10) + "T00:00:00Z").toISOString().slice(0, 10) !==
+        date.slice(0, 10)
+    )
+      return null;
+    return /(?:Z|[+-]\d\d:\d\d)$/i.test(date) ? date : date.slice(0, 10);
+  }
   return Number.isFinite(parsed)
     ? new Date(parsed).toISOString().slice(0, 10)
     : null;
@@ -302,7 +321,9 @@ function extractListing(html, url, source = {}) {
       ? address.addressCountry.name
       : address.addressCountry;
   const country =
-    countryNames[c] || c || source.countries?.[0] || inferCountry(body);
+    countryNames[c] ||
+    c ||
+    (source.countries?.length === 1 ? source.countries[0] : inferCountry(body));
   const title = clean(
     ld.title ||
       $("h1").first().text() ||
@@ -326,8 +347,8 @@ function extractListing(html, url, source = {}) {
   const description = (clean(ld.description) || body).split(
     /Interessant voor jou|Interesting for you|Related jobs|Similar jobs/i,
   )[0];
-  const deadlineMatch = body.match(
-    /(?:closing date|application deadline|deadline|closes|søknadsfrist|bewerbungsschluss)\s*[:\-]?\s*([^.;]{5,70})/i,
+  const deadlineMatch = (body + " " + description).match(
+    /(?:closing date|application deadline|deadline|applications close|applying is possible up to and including|applications (?:must be |should be )?received (?:no later than|by)|no later than|apply (?:by|before)|closes|søknadsfrist|bewerbungsschluss)\s*[:\-]?\s*([^.;]{5,100})/i,
   );
   const rawDeadline =
     ld.validThrough ||
@@ -460,10 +481,20 @@ class Discovery {
     this.providers = providers;
     this.connectors = connectors;
   }
-  save(job, source = "Manual import") {
+  save(
+    job,
+    source = "Manual import",
+    { strictIdentity = false, aliases = [] } = {},
+  ) {
     const key = jobKey(job);
     let existing = this.store.get("jobs", key);
-    if (!existing) {
+    if (!existing && aliases.length)
+      existing = this.store
+        .list("jobs")
+        .find((x) =>
+          aliases.some((url) => canonicalUrl(x.url) === canonicalUrl(url)),
+        );
+    if (!existing && !strictIdentity) {
       existing = this.store
         .list("jobs")
         .find(
@@ -581,7 +612,8 @@ class Discovery {
     const bridge = await createToolBridge(
       [tool],
       async (_name, args) => {
-        if (++reads > 6) throw new Error("Public page read limit reached");
+        if (++reads > Math.min(12, request.pageReadLimit || 6))
+          throw new Error("Public page read limit reached");
         await safeUrl(args.url);
         if (/\/login|\/signin|\/auth|mail\.google|outlook\./i.test(args.url))
           throw new Error("Only public vacancy pages are supported");
@@ -653,6 +685,7 @@ class Discovery {
       }
       candidate.retrieval = { ...candidate.retrieval, sources: validSources };
       let verified = null;
+      const accessAttempts = [];
       for (const url of [
         ...new Set([
           candidate.url,
@@ -664,6 +697,7 @@ class Discovery {
             pages.get(url) ||
             (await (this.fetchPage || fetchPage)(url, signal));
           const parsed = extractListing(page.html, page.url, {});
+          accessAttempts.push({ url: page.url, status: "read" });
           const text = (parsed.title + " " + parsed.description).toLowerCase();
           const words = candidate.title.toLowerCase().match(/[a-z]{4,}/g) || [];
           const matches = words.filter((w) => text.includes(w));
@@ -681,17 +715,70 @@ class Discovery {
                 parsed.institution === "Institution not identified"
                   ? candidate.institution
                   : parsed.institution,
+              country:
+                parsed.country === "Unknown"
+                  ? candidate.country
+                  : parsed.country,
+              eligibility:
+                /Read the official listing to confirm eligibility/i.test(
+                  parsed.eligibility,
+                )
+                  ? candidate.eligibility
+                  : parsed.eligibility,
+              requiredDocuments: [
+                ...new Set([
+                  ...parsed.requiredDocuments,
+                  ...candidate.requiredDocuments,
+                ]),
+              ],
+              deadline: parsed.deadline || candidate.deadline,
+              deadlineText: parsed.deadline
+                ? parsed.deadlineText
+                : candidate.deadlineText,
+              deadlineTimezone: parsed.deadline
+                ? parsed.deadlineTimezone
+                : candidate.deadlineTimezone,
+              applicationUrl:
+                parsed.applicationUrl === page.url
+                  ? candidate.applicationUrl
+                  : parsed.applicationUrl,
               retrieval: candidate.retrieval,
               verification: {
                 status: "source_verified",
                 url: page.url,
                 at: now(),
+                providerSupplementedFields: [
+                  ...(parsed.country === "Unknown" ? ["country"] : []),
+                  ...(!parsed.deadline && candidate.deadline
+                    ? ["deadline"]
+                    : []),
+                  ...(/Read the official listing to confirm eligibility/i.test(
+                    parsed.eligibility,
+                  )
+                    ? ["eligibility"]
+                    : []),
+                  ...(candidate.requiredDocuments.some(
+                    (d) => !parsed.requiredDocuments.includes(d),
+                  )
+                    ? ["requiredDocuments"]
+                    : []),
+                  ...(parsed.applicationUrl === page.url &&
+                  candidate.applicationUrl !== page.url
+                    ? ["applicationUrl"]
+                    : []),
+                ],
               },
             };
             break;
           }
         } catch (error) {
           if (signal?.aborted) throw error;
+          accessAttempts.push({
+            url,
+            status: "unavailable",
+            statusCode: error.statusCode || null,
+            message: error.message,
+          });
           task?.({
             message:
               "Provider evidence retained; independent page access unavailable: " +
@@ -700,7 +787,22 @@ class Discovery {
           });
         }
       }
-      results.push(verified || candidate);
+      const result = verified || candidate;
+      result.verification = { ...result.verification, accessAttempts };
+      if (
+        !verified &&
+        accessAttempts.some(
+          (a) => a.url === candidate.url && [404, 410].includes(a.statusCode),
+        )
+      ) {
+        task?.({
+          message:
+            "Provider vacancy retained for review: its reported page no longer exists.",
+          level: "warning",
+        });
+        continue;
+      }
+      results.push(result);
     }
     return results;
   }
@@ -809,7 +911,7 @@ class Discovery {
       visited = 0;
     const max = Math.min(
       search.maxResults || this.store.settings().maxResults || 30,
-      100,
+      2000,
     );
     const maxDetails = Math.min(160, Math.max(24, max * 4));
     let candidateCount = 0;

@@ -20,15 +20,41 @@ export function TaskSummary({
       <p>{summary.message}</p>
       {!!summary.metrics?.length && (
         <dl className="summary-metrics">
-          {summary.metrics.slice(0, compact ? 4 : 20).map((m: RecordData) => (
-            <div key={m.label}>
-              <dt>{m.label}</dt>
-              <dd>{m.value.toLocaleString()}</dd>
-            </div>
-          ))}
+          {summary.metrics
+            .slice(0, compact ? 4 : summary.metrics.length)
+            .map((m: RecordData) => (
+              <div key={m.label}>
+                <dt>{m.label}</dt>
+                <dd>{m.value.toLocaleString()}</dd>
+              </div>
+            ))}
         </dl>
       )}
       {!compact && <p className="muted">{summary.nextStep}</p>}
+      {!compact && !!summary.queryReport?.length && (
+        <details className="source-report">
+          <summary>
+            Query coverage and outcomes ({summary.queryReport.length})
+          </summary>
+          <p>
+            Reported query outcomes and observed native search actions are
+            separate. A search result is provisional until its vacancy details
+            are read.
+          </p>
+          <div className="query-report">
+            {summary.queryReport.map((q: RecordData, i: number) => (
+              <article key={q.id + "-" + i}>
+                <b>
+                  {q.country} · {q.role} ·{" "}
+                  {String(q.status).replaceAll("_", " ")}
+                </b>
+                <p>{q.query}</p>
+                {q.note && <small>{q.note}</small>}
+              </article>
+            ))}
+          </div>
+        </details>
+      )}
       {!compact && !!summary.sourceReport?.length && (
         <details className="source-report">
           <summary>

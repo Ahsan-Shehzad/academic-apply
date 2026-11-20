@@ -388,3 +388,45 @@ test("modern MCP mirrors annotated arguments safely and excludes malformed tool 
     /Invalid/,
   );
 });
+
+test("interactive browser work remains responsive during a long background search and serializes its own lane", async () => {
+  const f = await fixture();
+  let release;
+  const gate = new Promise((r) => (release = r)),
+    events = [];
+  try {
+    const tasks = new Tasks(f.store);
+    tasks.start("search", "Long search", async () => {
+      events.push("search-start");
+      await gate;
+      events.push("search-end");
+      return {};
+    });
+    const a = tasks.track("browser", "Inspect", async () => {
+      events.push("browser-one");
+      return { tabId: "tab" };
+    });
+    const b = tasks.track("browser", "Import", async () => {
+      events.push("browser-two");
+      return { jobId: "job" };
+    });
+    const results = await Promise.race([
+      Promise.all([a, b]),
+      new Promise((_, reject) =>
+        setTimeout(
+          () => reject(new Error("Browser controls blocked behind search")),
+          1000,
+        ),
+      ),
+    ]);
+    assert.equal(results[0].tabId, "tab");
+    assert.equal(results[1].jobId, "job");
+    assert.deepEqual(events, ["search-start", "browser-one", "browser-two"]);
+    release();
+    await tasks.idle();
+    assert.equal(events.at(-1), "search-end");
+  } finally {
+    release?.();
+    f.cleanup();
+  }
+});

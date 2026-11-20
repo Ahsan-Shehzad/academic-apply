@@ -20,6 +20,7 @@ const {
 } = require("./search-intelligence.cjs");
 const { advancedSearchShape } = require("./search-options.cjs");
 const { runSearch } = require("./search-runner.cjs");
+const { createWebHandlers } = require("./web-handlers.cjs");
 const { packageName } = require("./application-context.cjs");
 const { Store } = require("./store.cjs");
 const { Providers } = require("./providers.cjs");
@@ -218,7 +219,11 @@ const SearchSchema = z.object({
 });
 const validateSearch = (value) => {
   const search = SearchSchema.parse(value);
-  if (!search.sources.length && !search.mcpTools?.length)
+  if (
+    search.strategy === "sources" &&
+    !search.sources.length &&
+    !search.mcpTools?.length
+  )
     throw new Error("Select at least one source or MCP research tool.");
   return search;
 };
@@ -245,10 +250,38 @@ const SettingsSchema = z.object({
   providerWebResearch: z.boolean().optional(),
 });
 const handlers = {
+  ...createWebHandlers(() => ({
+    store,
+    providers,
+    discovery,
+    tasks,
+    browserWorkspace,
+    validateSearch,
+  })),
   snapshot: () => ({
     settings: store.settings(),
     profile: store.get("profile", "main"),
     jobs: store.list("jobs"),
+    candidates: store
+      .list("jobCandidates")
+      .map((c) => ({
+        ...c,
+        browserConnected:
+          !!browserWorkspace.pages.get(c.browserTabId) &&
+          !browserWorkspace.pages.get(c.browserTabId).isClosed(),
+      })),
+    searchCoverage: store
+      .list("searchCoverage")
+      .map((c) => ({
+        id: c.id,
+        name: c.criteria?.name || "Web search",
+        totalQueries: c.totalQueries,
+        covered: c.completedQueryIds?.length || 0,
+        cycle: c.cycle,
+        lastRun: c.lastRun,
+        countries: c.criteria?.countries || [],
+        depth: c.criteria?.depth || "thorough",
+      })),
     jobHistory: store.list("jobHistory"),
     searches: store.list("searches"),
     packages: store.list("packages").map((p) => {
@@ -518,6 +551,14 @@ const handlers = {
       });
     if (task.kind === "browser-import")
       return handlers["browser.import"]({ tabId: task.payload.tabId });
+    if (task.kind === "candidate-browser")
+      return handlers["candidate.browserImport"]({ id: task.payload.candidateId });
+    if (task.kind === "candidate-details")
+      return task.payload.candidateId
+        ? handlers["candidate.verify"]({ id: task.payload.candidateId })
+        : handlers["candidate.complete"](task.payload);
+    if (task.kind === "web-test")
+      return handlers["provider.webTest"](task.payload);
     throw new Error("Repeat the action from its workflow screen.");
   },
   "package.draft": (args) =>
@@ -1353,6 +1394,7 @@ if (!app.requestSingleInstanceLock()) {
               "application.browserInspect",
               "package.keywordPreview",
               "search.suggestions",
+              "search.preview",
             ].includes(method)
           )
             emit("changed", { method });

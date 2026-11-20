@@ -82,6 +82,7 @@ const defaultSearch = () => ({
   name: "Computing and AI academic opportunities",
   countries: ALL_COUNTRIES,
   roles: ["Lecturer", "Assistant Professor", "Postdoctoral"],
+  strategy:'hybrid', depth:'thorough', browserMode:'auto',
   keywords:
     "speech AI, natural language processing, multimodal learning, interpretable AI, graph learning, cognitive impairment",
   sources: SOURCES.filter((s) => !s.access.startsWith("employer")).map(

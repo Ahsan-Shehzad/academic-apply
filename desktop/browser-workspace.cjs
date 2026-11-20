@@ -120,6 +120,60 @@ class BrowserWorkspace {
         "Browser listing saved. Review the employer, eligibility and deadline.",
     };
   }
+  async listingPage(tabId) {
+    const inspection = await this.inspect(tabId),
+      page = this.page(tabId);
+    const html = await page.evaluate(() => {
+      const json = [
+        ...document.querySelectorAll('script[type="application/ld+json"]'),
+      ]
+        .map((el) => el.textContent)
+        .filter(Boolean)
+        .map(
+          (text) =>
+            '<script type="application/ld+json">' +
+            text.replace(/</g, "\\u003c") +
+            "</script>",
+        )
+        .join("");
+      const root = (
+        document.querySelector("main,article,[role=main]") || document.body
+      ).cloneNode(true);
+      root
+        .querySelectorAll(
+          "script,style,nav,header,footer,form,input,textarea,select,noscript",
+        )
+        .forEach((el) => el.remove());
+      const applyLinks = [...document.querySelectorAll("a[href]")]
+        .filter((el) => /apply|application portal/i.test(el.textContent || ""))
+        .slice(0, 12)
+        .map((el) => {
+          try {
+            const url = new URL(el.href);
+            if (
+              url.protocol !== "https:" ||
+              [...url.searchParams.keys()].some((k) =>
+                /token|session|secret|authorization|^code$/i.test(k),
+              )
+            )
+              return "";
+            const link = document.createElement("a");
+            link.href = url.href;
+            link.textContent = el.textContent;
+            return link.outerHTML;
+          } catch {
+            return "";
+          }
+        })
+        .join("");
+      return json + root.outerHTML + applyLinks;
+    });
+    if (page.url() !== inspection.url)
+      throw new Error(
+        "The Chrome page changed while it was being read. Inspect the vacancy again.",
+      );
+    return { ...inspection, html };
+  }
   async plan(prompt, tabId, task) {
     const tab = tabId && this.pages.has(tabId) ? this.page(tabId) : null;
     const location = tab ? new URL(tab.url()) : null;

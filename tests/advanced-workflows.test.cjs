@@ -388,3 +388,42 @@ test("combined submission packets include original PDF attachments and reject fi
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("independent page parsing preserves supplemental requirements and labels their provenance", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "academic-facts-")),
+    store = await Store.open(root);
+  try {
+    const job = {
+      ...vacancy(),
+      eligibility: "A completed PhD and two years of teaching are required.",
+      requiredDocuments: ["Research statement", "Degree certificates"],
+      deadline: "2099-12-20",
+      applicationUrl: "https://example.edu/apply",
+    };
+    const discovery = new Discovery(store, {
+      run: async () => JSON.stringify({ jobs: [job] }),
+    });
+    discovery.fetchPage = async (url) => ({
+      url,
+      html: `<h1>${job.title}</h1><main>${job.institution}. ${job.description}</main>`,
+    });
+    const [result] = await discovery.research(
+      { url: job.url },
+      () => {},
+      new AbortController().signal,
+    );
+    assert.equal(result.eligibility, job.eligibility);
+    assert.equal(result.deadline, job.deadline);
+    assert.equal(result.applicationUrl, job.applicationUrl);
+    assert.ok(result.requiredDocuments.includes("Degree certificates"));
+    assert.ok(
+      result.verification.providerSupplementedFields.includes("deadline"),
+    );
+    assert.ok(
+      result.verification.accessAttempts.some((a) => a.status === "read"),
+    );
+  } finally {
+    store.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

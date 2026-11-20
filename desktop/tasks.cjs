@@ -7,6 +7,8 @@ class Tasks {
     this.emit = emit;
     this.controllers = new Map();
     this.chain = Promise.resolve();
+    this.interactiveChain = Promise.resolve();
+    this.completions = new Map();
   }
   start(kind, label, run, payload = {}) {
     const record = {
@@ -55,7 +57,13 @@ class Tasks {
       this.emit("task", this.store.get("tasks", record.id));
     };
     update.id = record.id;
-    this.chain = this.chain
+    const lane =
+      kind === "browser" ||
+      kind === "browser-import" ||
+      kind === "candidate-browser"
+        ? "interactiveChain"
+        : "chain";
+    const completion = (this[lane] = this[lane]
       .catch(() => {})
       .then(async () => {
         if (controller.signal.aborted) {
@@ -74,6 +82,7 @@ class Tasks {
             update({
               status: "cancelled",
               message: "Cancelled",
+              result,
               finishedAt: now(),
             });
           else
@@ -93,7 +102,9 @@ class Tasks {
         } finally {
           this.controllers.delete(record.id);
         }
-      });
+      }));
+    this.completions.set(record.id, completion);
+    completion.finally(() => this.completions.delete(record.id));
     return record;
   }
   cancel(taskId) {
@@ -133,14 +144,14 @@ class Tasks {
   }
   async track(kind, label, run, payload = {}) {
     const task = this.start(kind, label, run, payload);
-    const completion = this.chain;
+    const completion = this.completions.get(task.id);
     await completion;
     const finished = this.store.get("tasks", task.id);
     if (finished.status !== "completed") throw new Error(finished.message);
     return finished.result;
   }
   async idle() {
-    await this.chain;
+    await Promise.all([this.chain, this.interactiveChain]);
   }
 }
 function dueSearches(store, at = new Date()) {

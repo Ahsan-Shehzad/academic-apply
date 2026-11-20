@@ -1,5 +1,7 @@
 "use strict";
 const { suitable } = require("./discovery.cjs");
+const { WebDiscovery } = require("./web-discovery.cjs");
+const { SOURCES } = require("./core.cjs");
 const { expandArguments, advancedMatch } = require("./search-options.cjs");
 const { accessIssue, sourceOutcome } = require("./source-access.cjs");
 async function runSearch(
@@ -38,23 +40,127 @@ async function runSearch(
     message: "",
     sourcesChecked: 0,
   };
-  if (search.sources.length) {
-    try {
-      result = await (strategy === "ai"
-        ? engine.aiSearch(scoped, task, signal)
-        : engine.search(scoped, task, signal));
-    } catch (error) {
-      if (signal?.aborted || !search.mcpTools?.length) throw error;
+  const webAllowed =
+    strategy !== "sources" &&
+    store.settings().cloudConsent &&
+    store.settings().providerWebResearch !== false;
+  const selectedSources = search.sources || [];
+  const catalog = connectors?.catalog?.() || [];
+  const reliable = selectedSources.filter((id) => {
+    const source = SOURCES.find((s) => s.id === id),
+      record = catalog.find((c) => c.id === id);
+    if (!source) return false;
+    if (source.access === "employer-api")
+      return !!store.get("connectors", id)?.boards?.length;
+    const health = store.get("sources", id) || record?.releaseCheck;
+    return (
+      health?.status === "available" ||
+      (!health && ["academictransfer", "uniroles"].includes(id))
+    );
+  });
+  const publicSources =
+    strategy === "ai" ? [] : webAllowed ? reliable : selectedSources;
+  const operations = [];
+  let latestProgress = 0;
+  const progress = (lane) => {
+    const update = (patch) => {
+      if (!task) return;
+      const mapped =
+        patch.progress === undefined
+          ? undefined
+          : lane === "web"
+            ? 10 + patch.progress * 0.8
+            : patch.progress * 0.2;
+      if (mapped !== undefined)
+        latestProgress = Math.max(latestProgress, mapped);
+      task({
+        ...patch,
+        ...(mapped === undefined ? {} : { progress: latestProgress }),
+      });
+    };
+    update.id = task?.id;
+    return update;
+  };
+  if (webAllowed)
+    operations.push({
+      name: "Internet search",
+      run: () =>
+        new WebDiscovery(store, engine, engine.providers).run(
+          scoped,
+          progress("web"),
+          signal,
+        ),
+    });
+  else if (strategy !== "sources")
+    task?.({
+      message:
+        "Internet research is disabled. Running the selected public connectors only; enable AI processing and provider web research for search-engine discovery.",
+      level: "warning",
+    });
+  if (publicSources.length)
+    operations.push({
+      name: "Public connectors",
+      run: () =>
+        engine.search(
+          { ...scoped, sources: publicSources, providerResearch: false },
+          progress("sources"),
+          signal,
+        ),
+    });
+  const outcomes = await Promise.allSettled(operations.map((o) => o.run()));
+  signal?.throwIfAborted();
+  let succeeded = 0;
+  for (const [index, outcome] of outcomes.entries()) {
+    if (outcome.status === "rejected") {
       result.failed++;
-      result.sourceReport = [
-        { id: "built-in", name: "Built-in discovery", ...accessIssue(error) },
-      ];
+      (result.sourceReport ||= []).push({
+        id: index === 0 && webAllowed ? "web-search" : "connectors",
+        name: operations[index].name,
+        ...accessIssue(outcome.reason),
+      });
       task?.({
-        message: `Built-in discovery could not complete: ${error.message}. Continuing with connected MCP research tools.`,
+        message:
+          operations[index].name +
+          " could not finish: " +
+          outcome.reason.message +
+          ". Other discovery results are retained.",
         level: "warning",
       });
+      continue;
     }
+    succeeded++;
+    const value = outcome.value;
+    result.jobIds.push(...value.jobIds);
+    result.failed += value.failed || 0;
+    result.sourcesChecked += value.sourcesChecked || 0;
+    (result.sourceReport ||= []).push(...(value.sourceReport || []));
+    if (value.searchKey) {
+      for (const key of [
+        "searchKey",
+        "depth",
+        "queriesPlanned",
+        "queriesRequested",
+        "queriesReported",
+        "observedSearchActions",
+        "queriesRemaining",
+        "queryOutcomes",
+        "coverageCycle",
+        "candidateIds",
+        "pendingCandidates",
+        "excludedCandidates",
+        "detailsAttempted",
+        "budgetReached",
+        "recoveredCount",
+      ])
+        result[key] = value[key];
+      result.candidateCount = value.candidateIds.length;
+    } else
+      result.connectorCandidates =
+        (result.connectorCandidates || 0) + (value.candidateCount || 0);
   }
+  if (!succeeded && outcomes.length && !search.mcpTools?.length)
+    throw outcomes[0].reason || new Error("Discovery could not run");
+  result.webSearchEnabled = !!webAllowed;
   const mcpResults = [];
   for (const config of search.mcpTools || []) {
     if (signal?.aborted) throw new Error("Search cancelled");
@@ -151,11 +257,22 @@ async function runSearch(
   return {
     ...result,
     jobIds: distinctIds,
+    fullListings: distinctIds.filter((id) => {
+      const j = store.get("jobs", id);
+      return (
+        j?.description?.length >= 200 &&
+        j.institution &&
+        !/not identified|unknown/i.test(j.institution)
+      );
+    }).length,
+    sourceVerifiedListings: distinctIds.filter(
+      (id) => store.get("jobs", id)?.verification?.status === "source_verified",
+    ).length,
     added,
     updated,
     mcpResults,
     strategy,
-    message: `${distinctIds.length} distinct listings saved: ${added} new, ${updated} updated. ${result.sourcesChecked || 0} built-in sources and ${mcpResults.length} MCP tools attempted. ${attention || 0} sources need attention.${result.recoveredCount ? ` ${result.recoveredCount} listings saved through provider recovery.` : ""}`,
+    message: `${distinctIds.length} distinct listings saved: ${added} new, ${updated} updated.${result.webSearchEnabled ? ` ${result.candidateIds?.length || 0} candidate links considered; ${result.pendingCandidates || 0} await full details. ${result.queriesReported || 0}/${result.queriesRequested || 0} queries reported searched; ${result.queriesRemaining || 0} planned queries remain.` : ""} ${result.sourcesChecked || 0} built-in sources and ${mcpResults.length} MCP tools attempted. ${attention || 0} sources need attention.${result.recoveredCount ? ` ${result.recoveredCount} listings saved through provider recovery.` : ""}`,
   };
 }
 module.exports = { runSearch };

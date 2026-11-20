@@ -25,9 +25,10 @@ const searches = new Set([
   "ai-search-once",
   "connector-discovery",
   "connector-search",
+  "candidate-details",
 ]);
 function taskSummary(task, store) {
-  const r = task.result || {},
+  const r = task.result || task.partialResult || {},
     metrics = [];
   const add = (label, value) => {
     if (Number.isFinite(value)) metrics.push({ label, value });
@@ -48,6 +49,14 @@ function taskSummary(task, store) {
     add("Updated listings", r.updated);
     add("Distinct listings", r.jobIds ? new Set(r.jobIds).size : undefined);
     add("Candidate links", r.candidateCount);
+    add("Full listings retrieved", r.fullListings);
+    add("Independently verified pages", r.sourceVerifiedListings);
+    add("Queries requested", r.queriesRequested);
+    add("Queries reported searched", r.queriesReported);
+    add("Observed native search actions", r.observedSearchActions);
+    add("Queries remaining", r.queriesRemaining);
+    add("Awaiting full details", r.pendingCandidates);
+    add("Excluded candidates", r.excludedCandidates);
     add("Sources attempted", r.sourcesChecked);
     const jobs = (r.jobIds || [])
       .map((id) => store?.get("jobs", id))
@@ -74,6 +83,12 @@ function taskSummary(task, store) {
       : "No matching listings were saved. Broaden roles, keywords or countries, and review source access below.";
     if (r.researchSourcesDeferred)
       nextStep += ` ${r.researchSourcesDeferred} source hints were deferred to keep this run bounded.`;
+    if (r.queriesRemaining)
+      nextStep +=
+        " Remaining query combinations resume on the next run of the same criteria.";
+    if (r.pendingCandidates)
+      nextStep +=
+        " Open Discover → Needs detail review to complete retained vacancy details or use visible Chrome.";
   } else if (r.packageId || task.packageId || task.payload?.packageId) {
     const pkg = store?.get(
       "packages",
@@ -118,6 +133,7 @@ function taskSummary(task, store) {
     metrics,
     nextStep,
     sourceReport: report,
+    queryReport: r.queryOutcomes || [],
   };
 }
 module.exports = { taskSummary };

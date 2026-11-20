@@ -41,6 +41,9 @@ export function newSearch(data: Snapshot, scheduled = false): RecordData {
     time: "09:00",
     timezone: "Asia/Shanghai",
     strategy: "hybrid",
+    depth: "thorough",
+    browserMode: "auto",
+    maxResults: 1000,
     filters: { includeUnknownDates: true, includeUnknownCountry: true },
     mcpTools: [],
   };
@@ -67,6 +70,9 @@ export default function AdvancedSearch({
       ...search,
       filters: search.filters || {},
       strategy: search.strategy || "hybrid",
+      depth: search.depth || "thorough",
+      browserMode: search.browserMode || "auto",
+      maxResults: search.maxResults || 1000,
       mcpTools: search.mcpTools || [],
     }),
     [tab, setTab] = useState(0),
@@ -80,6 +86,23 @@ export default function AdvancedSearch({
     },
   );
   const roleKey = form.roles.join("|");
+  const [preview, setPreview] = useState<RecordData | null>(null);
+  const previewKey = JSON.stringify(form);
+  useEffect(() => {
+    let active = true;
+    const timer = setTimeout(() => {
+      window.academic
+        .call("search.preview", { search: form })
+        .then((r) => {
+          if (active) setPreview(r.ok ? r.result : null);
+        })
+        .catch(() => {});
+    }, 500);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [previewKey, data.searchCoverage?.[0]?.lastRun]);
   useEffect(() => {
     let active = true;
     window.academic
@@ -116,7 +139,9 @@ export default function AdvancedSearch({
     form.name.trim() &&
     form.countries.length &&
     form.roles.length &&
-    (form.sources.length || form.mcpTools.length);
+    (form.strategy !== "sources" ||
+      form.sources.length ||
+      form.mcpTools.length);
   const run = async (action: "save" | "run" | "save-run") => {
     setError("");
     if (!valid) return;
@@ -139,6 +164,54 @@ export default function AdvancedSearch({
           onChange={(e) => change({ name: e.target.value })}
           sx={{ mt: 1 }}
         />
+        <div className="two-fields" style={{ marginTop: 16 }}>
+          <TextField
+            select
+            label="Search depth"
+            value={form.depth}
+            onChange={(e) => change({ depth: e.target.value })}
+          >
+            {[
+              ["quick", "Quick — short focused pass"],
+              ["balanced", "Balanced — wider search"],
+              ["thorough", "Thorough — broad coverage"],
+            ].map(([value, label]) => (
+              <MenuItem key={value} value={value}>
+                {label}
+              </MenuItem>
+            ))}
+          </TextField>
+          <TextField
+            select
+            label="Public page reader"
+            value={form.browserMode}
+            onChange={(e) => change({ browserMode: e.target.value })}
+          >
+            {[
+              ["auto", "Automatic — public HTML, Chrome for JavaScript"],
+              ["http", "Public HTML only"],
+              ["headless", "Headless Chrome after public access check"],
+            ].map(([value, label]) => (
+              <MenuItem key={value} value={value}>
+                {label}
+              </MenuItem>
+            ))}
+          </TextField>
+        </div>
+        {form.strategy !== "sources" && preview && (
+          <Alert severity="info" sx={{ mt: 2 }}>
+            <b>
+              {preview.countries.length} countries · {preview.totalQueries}{" "}
+              planned query combinations.
+            </b>{" "}
+            This pass can run {preview.queriesThisRun} queries, consider up to{" "}
+            {preview.budget.candidates} links and read up to{" "}
+            {preview.budget.details} detail pages, with additional employer
+            research. Remaining queries and unresolved links are retained for
+            another pass. Visible Chrome assistance is available in Discover for
+            verification or sign-in.
+          </Alert>
+        )}
         <Tabs
           value={tab}
           onChange={(_, v) => setTab(v)}
@@ -432,13 +505,11 @@ export default function AdvancedSearch({
                 value={form.strategy}
                 onChange={(e) => change({ strategy: e.target.value })}
               >
-                <MenuItem value="hybrid">Public sources + AI recovery</MenuItem>
-                <MenuItem value="sources">
-                  Public sources and connected MCP tools
+                <MenuItem value="hybrid">
+                  Web search + reliable connectors
                 </MenuItem>
-                <MenuItem value="ai">
-                  AI research and source verification
-                </MenuItem>
+                <MenuItem value="sources">Connectors only</MenuItem>
+                <MenuItem value="ai">Web search only</MenuItem>
               </TextField>
               <TextField
                 select
@@ -474,23 +545,23 @@ export default function AdvancedSearch({
             {!data.settings.cloudConsent && form.strategy !== "sources" && (
               <Alert severity="warning">
                 AI processing is off in Settings. Public discovery remains
-                available; AI recovery waits until you enable it. AI-only
+                available; web search waits until you enable it. Web-only
                 searches require AI processing.
               </Alert>
             )}
             <TextField
-              label="Maximum results / detail review budget"
+              label="Maximum full listings"
               type="number"
-              value={form.maxResults || data.settings.maxResults || 30}
+              value={form.maxResults || 1000}
               onChange={(e) =>
                 change({
                   maxResults: Math.max(
                     5,
-                    Math.min(100, Number(e.target.value)),
+                    Math.min(2000, Number(e.target.value)),
                   ),
                 })
               }
-              inputProps={{ min: 5, max: 100 }}
+              inputProps={{ min: 5, max: 2000 }}
             />
             <Autocomplete
               multiple
@@ -508,7 +579,10 @@ export default function AdvancedSearch({
                 change({ sources: sources.map((s) => s.id) })
               }
               renderInput={(params) => (
-                <TextField {...params} label="Job listing sources" />
+                <TextField
+                  {...params}
+                  label="Supplemental connectors and portal hints"
+                />
               )}
             />
             <div className="tag-row">

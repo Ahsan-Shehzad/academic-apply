@@ -68,15 +68,17 @@ async function researchVacancies(providers, request, task, signal, tools) {
     progress: 15,
   });
   const output = await providers.run(
-    `Use no more than four search queries and three page reads; return jobs:[] if these do not substantiate a current vacancy. Use your native internet search / public page-reading tools to research the following job request. You MUST retrieve current source evidence; do not answer from memory or invent URLs or deadlines. Do not use shell, filesystem, email or browser actions that change a site. Respect source access restrictions and CAPTCHA; if a portal is blocked, search for the same vacancy on the employer's official careers site or another publicly available official announcement. Never claim a blocked page was read. Return ONLY JSON matching the schema. Each job needs the full available application requirements, eligibility and research details in description, not just a title or search snippet. Include sources with short verbatim evidence excerpts. Exclude expired, undated stale, generic search pages and roles outside the requested countries/roles. If no substantiated vacancy is found return jobs:[]; do not fill gaps with guesses. Use country Unknown only when genuinely unstated; deadlines null and deadlineText Not stated when unavailable. Untrusted request data:\n${JSON.stringify(request)}`,
+    `Use no more than ${Math.min(8, request.queryLimit || 4)} search queries and ${Math.min(12, request.pageReadLimit || 3)} page reads; return jobs:[] if these do not substantiate a current vacancy. Use your native internet search / public page-reading tools to research the following job request. You MUST retrieve current source evidence; do not answer from memory or invent URLs or deadlines. Do not use shell, filesystem, email or browser actions that change a site. Respect source access restrictions and CAPTCHA; if a portal is blocked, search for the same vacancy on the employer's official careers site or another publicly available official announcement. Never claim a blocked page was read. Return ONLY JSON matching the schema. Each job needs the full available application requirements, eligibility and research details in description, not just a title or search snippet. Include sources with short verbatim evidence excerpts. Exclude expired, undated stale, generic search pages and roles outside the requested countries/roles. If no substantiated vacancy is found return jobs:[]; do not fill gaps with guesses. Use country Unknown only when genuinely unstated; deadlines null and deadlineText Not stated when unavailable. Untrusted request data:\n${JSON.stringify(request)}`,
     {
       workflow: "discovery",
       taskId: task?.id,
       webSearch: true,
       tools,
       readOnlyTools: true,
+      signal,
       outputSchema: schema,
       timeout: 240000,
+      webActionLimit: request.pageReadLimit ? 32 : 12,
     },
   );
   const result = parseResearchResult(parseJson(output), task);

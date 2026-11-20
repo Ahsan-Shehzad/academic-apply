@@ -1,5 +1,15 @@
 # AcademicApply user guide
 
+## Version 1.9.0
+
+In **Settings**, enable AI processing and provider web research, select a working provider/model, then run **Test service** and **Test web search**. Drafting readiness alone does not establish internet access.
+
+In **Discover → New search**, select countries/groups, flexible roles and keywords. Use **Web search + reliable connectors**, **Thorough** depth and **Automatic** page reading for wider coverage. The preview shows the query matrix and per-run bounds. Selected portals add search-domain hints; unavailable crawlers do not block native web discovery. Save the search for weekly scheduling, or run it once.
+
+**Full listings** contains retrieved descriptions and requirements. Open each ad to inspect eligibility, requested documents, deadlines, application link, evidence and missing-field notes. Provider-reported facts still need review. **Needs detail review** contains provisional links. Select a search coverage and choose **Complete pending details** to spend another extraction budget without running broad queries. Use **Get full listing** for one candidate. If manual verification is required, **Open in Chrome**, complete it, return to Discover and **Import visible page**. Only matching full vacancy text is saved; form values are excluded. Ignore/restore controls retain your decisions.
+
+Activity reports planned/requested/provider-reported queries, observed native search actions, candidate links, full ads, exclusions, remaining candidates and coverage. Repeating the same search resumes uncovered queries; a completed matrix starts a fresh cycle next time. Quick/Balanced/Thorough have separate query/detail/time limits; a completed task means its bounded run finished, not that every market vacancy was found. New closing-date and required-document extraction still requires your review before applying.
+
 ## Version 1.8.0
 
 After a task finishes, a summary card appears above the current workflow. Choose **View full summary** to see its counts, next steps and saved result in Activity. You can dismiss the card without deleting the task. Activity retains summaries and work logs after restart, including failures and partial document packages. Historical tasks are available there without replaying old completion notifications.

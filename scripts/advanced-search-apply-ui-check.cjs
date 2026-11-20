@@ -200,7 +200,7 @@ async function invoke(p, method, args = {}) {
     await d.getByRole("combobox", { name: /^Search method/ }).click();
     await p
       .getByRole("option", {
-        name: "Public sources and connected MCP tools",
+        name: "Connectors only",
         exact: true,
       })
       .click();
@@ -212,7 +212,7 @@ async function invoke(p, method, args = {}) {
     await p.keyboard.press("Tab");
     await d.getByRole("button", { name: "Clear sources", exact: true }).click();
     await d
-      .getByRole("combobox", { name: "Job listing sources", exact: true })
+      .getByRole("combobox", { name: "Supplemental connectors and portal hints", exact: true })
       .fill("AcademicTransfer");
     await p
       .getByRole("option", { name: "AcademicTransfer", exact: true })

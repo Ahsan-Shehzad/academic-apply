@@ -2,11 +2,11 @@
 
 A Windows desktop application for academic job discovery, tailored submission packages and assisted job applications. Built with Electron, React, TypeScript and Material UI.
 
-**Current release: 1.8.0.** See the [release notes](docs/RELEASE-1.8.0.md), [user guide](docs/USER-GUIDE.md) and [validation record](docs/VALIDATION.md).
+**Current release: 1.9.0.** See the [release notes](docs/RELEASE-1.9.0.md), [user guide](docs/USER-GUIDE.md) and [validation record](docs/VALIDATION.md).
 
 ## Install
 
-Download [AcademicApply Setup 1.8.0](https://github.com/Ahsan-Shehzad/academic-apply/releases/download/v1.8.0/AcademicApply-Setup-1.8.0.exe) from [GitHub Releases](https://github.com/Ahsan-Shehzad/academic-apply/releases). The installer is currently unsigned. Version 1.7.0 is also available for rollback; see [release files](release/README.md) for checksums and distribution details.
+Download [AcademicApply Setup 1.9.0](https://github.com/Ahsan-Shehzad/academic-apply/releases/download/v1.9.0/AcademicApply-Setup-1.9.0.exe) from [GitHub Releases](https://github.com/Ahsan-Shehzad/academic-apply/releases). The installer is currently unsigned. Version 1.8.0 is also available for rollback; see [release files](release/README.md) for checksums and distribution details.
 
 Installers and prepared source archives are distributed as GitHub Release assets and excluded from Git history. A source-only clone must be built using the development instructions below. Local delivery copies are kept in `release/`.
 
@@ -20,7 +20,7 @@ Installers and prepared source archives are distributed as GitHub Release assets
 
 ## Features
 
-- **Discover:** flexible academic/research roles, country groups, profile-based keyword suggestions, advanced filters, ratings, sorting and centralized saved listings.
+- **Discover:** web-search-first country/role/topic plans, native provider search, reliable supplemental connectors, full-page verification, official-employer recovery, resumable candidate review, ratings and sorting.
 - **Connectors:** 103 source definitions, public employer feeds and configurable read-only MCP research tools, with access reports and setup guides.
 - **Scheduler:** saved searches with weekly schedules and optional Windows background execution.
 - **Documents:** listing-based document selection, editable academic CVs and statements, supporting files, referee drafts, Word/PDF export and package review.
@@ -32,9 +32,9 @@ Installers and prepared source archives are distributed as GitHub Release assets
 ## First run
 
 1. Import your own candidate-data folder in **Profile**. Review and approve the extracted facts.
-2. In **Settings**, choose an installed AI provider, sign in if needed, run **Test service**, select a model and enable AI processing when ready.
-3. In **Discover → New search**, choose roles, countries, keywords and sources. Run once or save a scheduled search.
-4. Review the results and official listing requirements. Source restrictions and manual setup appear in the completion summary.
+2. In **Settings**, choose an installed AI provider, sign in if needed, run **Test service** and **Test web search**, select a model and enable AI processing when ready.
+3. In **Discover → New search**, choose roles, countries and keywords. Use **Web search + reliable connectors**, **Thorough** depth and **Automatic** public-page reading. Preview the query plan, then run once or save a scheduled search.
+4. Review **Full listings** and the search-funnel summary. Under **Needs detail review**, use **Complete pending details** or open a blocked candidate in Chrome and **Import visible page**. Unresolved links are not counted as full listings.
 5. Prepare the matching package in **Documents**. Add supporting records, edit drafts, export PDFs and inspect each document before marking it reviewed.
 6. In **Apply**, select the listing and package, complete portal sign-in, review answers and uploads, then explicitly approve final submission.
 
@@ -69,7 +69,7 @@ npm run build
 npm run test:ui
 ```
 
-The 1.8.0 validation run passed 99 automated tests. Additional controlled Electron workflows cover completion summaries, flexible search, supporting files and Apply controls. Live source availability and AI output vary; see the dated [validation record](docs/VALIDATION.md).
+The 1.9.0 validation run passed 120 automated tests. Additional controlled Electron workflows cover completion summaries, flexible search, supporting files and Apply controls. Live source availability and AI output vary; see the dated [validation record](docs/VALIDATION.md).
 
 Optional focused checks:
 
@@ -104,7 +104,7 @@ Apply that cleanup locally:
 .\scripts\clean-workspace.ps1 -Apply
 ```
 
-The script validates retained delivery checksums and target paths first. It preserves source, Git history, `qa/` backups, the installed application, personal candidate records and the 1.8.0/1.7.0 deliveries. It removes local dependencies, which can be restored with `npm ci`.
+The script validates retained delivery checksums and target paths first. It preserves source, Git history, `qa/` backups, the installed application, personal candidate records and the 1.9.0/1.8.0 deliveries. It removes local dependencies, which can be restored with `npm ci`.
 
 Locked targets retry up to three times and then remain pending while the other targets continue. The report in `qa/workspace-cleanup.json` includes actual reclaimed bytes and pending paths. Close applications using those paths, or wait for background file scanning to finish, and rerun the same command. The script does not force-close processes. Its cleanup behavior can be checked without deleting files using `scripts/clean-workspace.test.ps1`.
 

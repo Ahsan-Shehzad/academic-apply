@@ -3,6 +3,8 @@ export interface Snapshot {
   settings: RecordData;
   profile: RecordData | null;
   jobs: RecordData[];
+  candidates?: RecordData[];
+  searchCoverage?: RecordData[];
   jobHistory?: RecordData[];
   searches: RecordData[];
   packages: RecordData[];

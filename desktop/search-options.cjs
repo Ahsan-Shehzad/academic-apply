@@ -18,8 +18,10 @@ const advancedSearchShape = {
   aiProvider: z.enum(["", "codex", "antigravity"]).optional(),
   aiModel: z.string().max(200).optional(),
   filters: FilterSchema.optional(),
-  maxResults: z.number().int().min(5).max(100).optional(),
+  maxResults: z.number().int().min(5).max(2000).optional(),
   strategy: z.enum(["sources", "ai", "hybrid"]).optional(),
+  depth: z.enum(["quick", "balanced", "thorough"]).optional(),
+  browserMode: z.enum(["auto", "http", "headless"]).optional(),
   mcpTools: z
     .array(
       z.object({

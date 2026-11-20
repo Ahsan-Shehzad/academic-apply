@@ -107,6 +107,9 @@ export default function Activity({
       "document-add",
       "supporting-draft",
       "cv-format",
+      "candidate-details",
+      "candidate-browser",
+      "web-test",
     ].includes(task.kind);
   return (
     <div className={compact ? "activity compact" : "activity"}>

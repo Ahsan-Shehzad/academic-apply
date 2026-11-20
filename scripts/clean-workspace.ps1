@@ -53,7 +53,7 @@ foreach ($taskRequired in @('package.json', 'src', 'desktop', 'release')) {
 }
 
 # Keep the verified current delivery and one rollback version.
-$taskVersions = @('1.8.0', '1.7.0')
+$taskVersions = @('1.9.0', '1.8.0')
 $taskReleaseRoot = Join-Path $taskProjectRoot 'release'
 $taskKeepFiles = @('README.md', 'SHA256SUMS.txt', 'VALIDATION.md')
 foreach ($taskVersion in $taskVersions) {

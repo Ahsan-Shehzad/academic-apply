@@ -41,7 +41,7 @@ function roleMatches(title, roles) {
     if (r === "postdoctoral")
       return /postdoc|post doc|research fellow|research associate/.test(text);
     if (r === "assistant professor")
-      return /assistant professor|lecturer|junior professor|tenure track|førsteamanuensis/.test(
+      return /assistant professor|lecturer|junior ?profess(?:or|ur)|tenure track|førsteamanuensis|universitair docent|maitre de conferences|bitradande lektor/.test(
         text,
       );
     if (r === "lecturer")

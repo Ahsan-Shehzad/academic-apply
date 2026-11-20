@@ -82,6 +82,7 @@ import Connectors from "./Connectors";
 import PackageSupport, { PackageRequirements } from "./PackageSupport";
 import AdvancedSearch, { newSearch } from "./AdvancedSearch";
 import ApplyStart, { packageLabel } from "./ApplyStart";
+import SearchCandidates from "./SearchCandidates";
 
 const NAV = [
   ["Dashboard", SpaceDashboardOutlined],
@@ -1880,6 +1881,7 @@ function Discover({
 
   busy: string;
 }) {
+  const [view, setView] = useState("listings");
   const [query, setQuery] = useState(""),
     [selectedCountries, setSelectedCountries] = useState<string[] | null>(null),
     [countryGroup, setCountryGroup] = useState(""),
@@ -2182,62 +2184,99 @@ function Discover({
         </div>
       </section>
 
-      <div className="section-label">
-        <b>{jobs.length} opportunities</b>
-
-        <div className="tag-row">
-          <FieldSelect
-            label="My rating"
-            value={ratingFilter}
-            onChange={setRatingFilter}
-            options={[
-              { value: "all", label: "Any rating" },
-              { value: "4", label: "4 stars and above" },
-              { value: "1", label: "Rated" },
-              { value: "unrated", label: "Unrated" },
-            ]}
-          />
-
-          <small>Pinned listings first</small>
-          <Button
-            color="error"
-            disabled={!!busy || !data.jobs.length}
-            onClick={() => setDeleting("all")}
-          >
-            Reset all listings ({data.jobs.length})
-          </Button>
-        </div>
+      <div
+        className="tag-row discovery-views"
+        role="tablist"
+        aria-label="Discovery results"
+      >
+        <Button
+          role="tab"
+          aria-selected={view === "listings"}
+          variant={view === "listings" ? "contained" : "outlined"}
+          onClick={() => setView("listings")}
+        >
+          Full listings ({jobs.length})
+        </Button>
+        <Button
+          role="tab"
+          aria-selected={view === "candidates"}
+          variant={view === "candidates" ? "contained" : "outlined"}
+          onClick={() => setView("candidates")}
+        >
+          Needs detail review (
+          {data.candidates?.filter((c) =>
+            ["pending", "needs_review"].includes(c.status),
+          ).length || 0}
+          )
+        </Button>
       </div>
+      {view === "candidates" ? (
+        <SearchCandidates
+          data={data}
+          call={call}
+          openJob={openJob}
+          query={query}
+          countries={selectedCountries}
+        />
+      ) : (
+        <>
+          <div className="section-label">
+            <b>{jobs.length} opportunities</b>
 
-      <section className="panel">
-        {jobs.length ? (
-          <JobList
-            jobs={jobs}
-            onOpen={openJob}
-            call={call}
-            onDelete={setDeleting}
-          />
-        ) : (
-          <Empty
-            title="Discover your next opportunity"
+            <div className="tag-row">
+              <FieldSelect
+                label="My rating"
+                value={ratingFilter}
+                onChange={setRatingFilter}
+                options={[
+                  { value: "all", label: "Any rating" },
+                  { value: "4", label: "4 stars and above" },
+                  { value: "1", label: "Rated" },
+                  { value: "unrated", label: "Unrated" },
+                ]}
+              />
 
-            text="Run a saved search, use AI discovery, or import a listing you already have. Source coverage and errors remain visible."
-
-            action={
+              <small>Pinned listings first</small>
               <Button
-                variant="contained"
-
-                startIcon={<AddRounded />}
-
-                onClick={addJob}
+                color="error"
+                disabled={!!busy || !data.jobs.length}
+                onClick={() => setDeleting("all")}
               >
-                Import a listing
+                Reset all listings ({data.jobs.length})
               </Button>
-            }
-          />
-        )}
-      </section>
+            </div>
+          </div>
 
+          <section className="panel">
+            {jobs.length ? (
+              <JobList
+                jobs={jobs}
+                onOpen={openJob}
+                call={call}
+                onDelete={setDeleting}
+              />
+            ) : (
+              <Empty
+                title="Discover your next opportunity"
+
+                text="Run a saved search, use AI discovery, or import a listing you already have. Source coverage and errors remain visible."
+
+                action={
+                  <Button
+                    variant="contained"
+
+                    startIcon={<AddRounded />}
+
+                    onClick={addJob}
+                  >
+                    Import a listing
+                  </Button>
+                }
+              />
+            )}
+          </section>
+        </>
+      )}
       <Dialog
         open={!!deleting}
         onClose={() => setDeleting(null)}
@@ -2466,6 +2505,7 @@ function JobDetail({
           {job.country} · {job.source}
         </p>
 
+        {!!job.detailCoverage?.notes?.length && <Alert severity="info">Full description retrieved. Please confirm: {job.detailCoverage.notes.join(' ')}</Alert>}
         <div className="detail-meta">
           <div>
             <small>DEADLINE</small>
@@ -5506,6 +5546,24 @@ function Settings({
                 </div>
               )}
 
+              {service?.webSearchHealth && (
+                <Alert
+                  severity={
+                    service.webSearchHealth.status === "ready"
+                      ? "success"
+                      : "warning"
+                  }
+                >
+                  <b>Internet search: {service.webSearchHealth.status}</b>
+                  <br />
+                  {service.webSearchHealth.message}
+                  <br />
+                  <small>
+                    Model: {service.webSearchHealth.model || "provider default"}{" "}
+                    · {new Date(service.webSearchHealth.at).toLocaleString()}
+                  </small>
+                </Alert>
+              )}
               {service?.status === "ready" && !settings.cloudConsent && (
                 <Alert severity="warning">
                   Service verified. Enable AI processing above before running AI
@@ -5600,6 +5658,18 @@ function Settings({
                     onClick={() => call("provider.login", { provider })}
                   >
                     {provider === "codex" ? "Sign in" : "Check sign-in"}
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    disabled={!!busy}
+                    onClick={() =>
+                      call("provider.webTest", {
+                        provider,
+                        model: settings.models?.[provider] || "",
+                      })
+                    }
+                  >
+                    Test web search
                   </Button>
 
                   {provider === "antigravity" && (

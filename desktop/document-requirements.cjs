@@ -111,6 +111,26 @@ function planFromJob(job) {
         !lines.every((s) => /optional|if available/i.test(s)),
       );
   }
+  const thesis = /(?:Ph\.?D\.?|doctoral|doctorate)\s+thes[ie]s/gi;
+  for (const match of description.matchAll(thesis)) {
+    const context = description.slice(
+      Math.max(0, match.index - 250),
+      match.index + 100,
+    );
+    if (
+      /attach|submit|include|following.{0,30}documents|documents.{0,30}required/i.test(
+        context,
+      ) &&
+      !/do not (?:include|submit|send)|not required/i.test(context)
+    )
+      add(
+        "Doctoral thesis",
+        "attachment",
+        null,
+        context,
+        !/optional|if available/i.test(context),
+      );
+  }
   for (const raw of job.requiredDocuments || []) {
     const label = String(raw);
     if (requirements.some((r) => r.label.toLowerCase() === label.toLowerCase()))
