@@ -28,6 +28,7 @@ import {
   CircularProgress,
   Divider,
   Rating,
+  Menu,
 } from "@mui/material";
 
 import {
@@ -67,6 +68,7 @@ import {
   HistoryOutlined,
   PublicOutlined,
   ExtensionOutlined,
+  HelpOutlineRounded,
 } from "@mui/icons-material";
 
 import type { RecordData, Snapshot } from "./types";
@@ -324,7 +326,9 @@ export default function App() {
     [browserResearchOpen, setBrowserResearchOpen] = useState(false),
     [review, setReview] = useState<RecordData | null>(null),
     [suggestions, setSuggestions] = useState<RecordData | null>(null),
-    [mail, setMail] = useState<RecordData | null>(null);
+    [mail, setMail] = useState<RecordData | null>(null),
+    [helpAnchor, setHelpAnchor] = useState<HTMLElement | null>(null),
+    [aboutOpen, setAboutOpen] = useState(false);
 
   const reload = useCallback(async () => {
     const r = await window.academic.call("snapshot");
@@ -380,7 +384,13 @@ export default function App() {
   useEffect(() => {
     reload();
 
-    const off = window.academic.onEvent(() => reload());
+    const off = window.academic.onEvent((event) => {
+      if (event?.type === "about") {
+        setAboutOpen(true);
+        return;
+      }
+      reload();
+    });
 
     const interval = setInterval(reload, 12000);
 
@@ -679,6 +689,41 @@ export default function App() {
                   <RefreshRounded fontSize="small" />
                 </IconButton>
               </Tooltip>
+
+              <Tooltip title="Help &amp; About AcademicApply">
+                <Button
+                  size="small"
+                  startIcon={<HelpOutlineRounded fontSize="small" />}
+                  onClick={(e) => setHelpAnchor(e.currentTarget)}
+                >
+                  Help
+                </Button>
+              </Tooltip>
+
+              <Menu
+                anchorEl={helpAnchor}
+                open={!!helpAnchor}
+                onClose={() => setHelpAnchor(null)}
+              >
+                <MenuItem
+                  onClick={() => {
+                    setHelpAnchor(null);
+                    setAboutOpen(true);
+                  }}
+                >
+                  About AcademicApply (v{data.version})
+                </MenuItem>
+                <MenuItem
+                  onClick={() => {
+                    setHelpAnchor(null);
+                    call("url.open", {
+                      url: "https://github.com/Ahsan-Shehzad/academic-apply/releases",
+                    });
+                  }}
+                >
+                  View Releases on GitHub
+                </MenuItem>
+              </Menu>
             </div>
           </header>
 
@@ -1653,6 +1698,68 @@ export default function App() {
 
           <DialogActions>
             <Button onClick={() => setMail(null)}>Close</Button>
+          </DialogActions>
+        </Dialog>
+
+        <Dialog
+          open={aboutOpen}
+          onClose={() => setAboutOpen(false)}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle>About AcademicApply</DialogTitle>
+          <DialogContent>
+            <div className="form-stack">
+              <p>
+                <b>AcademicApply</b> · Version <b>{data.version}</b>
+              </p>
+              <p className="muted">
+                Private academic job discovery and application workspace.
+              </p>
+              {data.appInfo && (
+                <small>
+                  Electron {data.appInfo.electron} · Chromium{" "}
+                  {data.appInfo.chrome} · Node.js {data.appInfo.node} ·{" "}
+                  {data.appInfo.platform}
+                </small>
+              )}
+              <small>
+                Chrome integration:{" "}
+                {data.chromeInstalled ? "Google Chrome detected" : "Chrome not found"}
+              </small>
+              <small>Workspace data: {data.dataRoot}</small>
+            </div>
+          </DialogContent>
+          <DialogActions>
+            <Button
+              startIcon={<ContentCopyOutlined fontSize="small" />}
+              onClick={() => {
+                const lines = [
+                  `AcademicApply v${data.version}`,
+                  data.appInfo
+                    ? `Electron ${data.appInfo.electron} / Chromium ${data.appInfo.chrome} / Node ${data.appInfo.node} (${data.appInfo.platform})`
+                    : "",
+                ]
+                  .filter(Boolean)
+                  .join("\n");
+                navigator.clipboard?.writeText(lines);
+                setToast({ text: "Version details copied to clipboard." });
+              }}
+            >
+              Copy version info
+            </Button>
+            <Button
+              onClick={() =>
+                call("url.open", {
+                  url: "https://github.com/Ahsan-Shehzad/academic-apply/releases",
+                })
+              }
+            >
+              GitHub Releases
+            </Button>
+            <Button variant="contained" onClick={() => setAboutOpen(false)}>
+              Close
+            </Button>
           </DialogActions>
         </Dialog>
 

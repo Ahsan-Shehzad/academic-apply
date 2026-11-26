@@ -2,18 +2,19 @@
 
 | Version | Purpose | Installer |
 | --- | --- | --- |
-| 1.9.4 | Current release | [Windows x64 setup](https://github.com/Ahsan-Shehzad/academic-apply/releases/download/v1.9.4/AcademicApply-Setup-1.9.4.exe) |
-| 1.9.3 | Previous release | [Windows x64 setup](https://github.com/Ahsan-Shehzad/academic-apply/releases/download/v1.9.3/AcademicApply-Setup-1.9.3.exe) |
-| 1.9.2 | Earlier release for rollback | [Windows x64 setup](https://github.com/Ahsan-Shehzad/academic-apply/releases/download/v1.9.2/AcademicApply-Setup-1.9.2.exe) |
+| 1.9.5 | Current release | [Windows x64 setup](https://github.com/Ahsan-Shehzad/academic-apply/releases/download/v1.9.5/AcademicApply-Setup-1.9.5.exe) |
+| 1.9.4 | Previous release | [Windows x64 setup](https://github.com/Ahsan-Shehzad/academic-apply/releases/download/v1.9.4/AcademicApply-Setup-1.9.4.exe) |
+| 1.9.3 | Earlier release for rollback | [Windows x64 setup](https://github.com/Ahsan-Shehzad/academic-apply/releases/download/v1.9.3/AcademicApply-Setup-1.9.3.exe) |
+| 1.9.2 | Archived release for rollback | [Windows x64 setup](https://github.com/Ahsan-Shehzad/academic-apply/releases/download/v1.9.2/AcademicApply-Setup-1.9.2.exe) |
 | 1.9.0 | Archived release for rollback | [Windows x64 setup](https://github.com/Ahsan-Shehzad/academic-apply/releases/download/v1.9.0/AcademicApply-Setup-1.9.0.exe) |
 | 1.8.0 | Archived release for rollback | [Windows x64 setup](https://github.com/Ahsan-Shehzad/academic-apply/releases/download/v1.8.0/AcademicApply-Setup-1.8.0.exe) |
 
-Matching source ZIP archives and installer blockmaps are retained alongside these installers. The 1.9.4 installer and source archive add logical grouping, status/attention quick filters, and bulk connector selection in Connectors & Search.
+Matching source ZIP archives and installer blockmaps are retained alongside these installers. The 1.9.5 installer and source archive add a native Help menu (`About AcademicApply`) and in-app Help / version info dialog alongside grouped Connectors and search fixes.
 
 Verify files using [SHA256SUMS.txt](SHA256SUMS.txt):
 
 ```powershell
-Get-FileHash .\release\AcademicApply-Setup-1.9.4.exe -Algorithm SHA256
+Get-FileHash .\release\AcademicApply-Setup-1.9.5.exe -Algorithm SHA256
 ```
 
 See [VALIDATION.md](VALIDATION.md) for delivery checks. Installers are unsigned.

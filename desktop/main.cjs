@@ -2,6 +2,7 @@
 const {
   app,
   BrowserWindow,
+  Menu,
   ipcMain,
   dialog,
   shell,
@@ -90,6 +91,48 @@ function emit(type, data) {
   if (window && !window.isDestroyed())
     window.webContents.send("academic:event", { type, data });
 }
+function installAppMenu() {
+  const version = app.getVersion();
+  const showAbout = () => {
+    if (window && !window.isDestroyed()) {
+      window.show();
+      window.focus();
+      emit("about", { version });
+      return;
+    }
+    dialog.showMessageBox({
+      type: "info",
+      title: "About AcademicApply",
+      message: `AcademicApply v${version}`,
+      detail: `Electron ${process.versions.electron}\nChromium ${process.versions.chrome}\nNode.js ${process.versions.node}\nPlatform ${process.platform} (${process.arch})`,
+    });
+  };
+  const template = [
+    { role: "fileMenu" },
+    { role: "editMenu" },
+    { role: "viewMenu" },
+    { role: "windowMenu" },
+    {
+      label: "Help",
+      submenu: [
+        {
+          label: `About AcademicApply (v${version})`,
+          click: showAbout,
+        },
+        { type: "separator" },
+        {
+          label: "View Releases on GitHub",
+          click: () =>
+            shell.openExternal(
+              "https://github.com/Ahsan-Shehzad/academic-apply/releases",
+            ),
+        },
+      ],
+    },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
 function createWindow() {
   if (window && !window.isDestroyed()) {
     window.show();
@@ -341,6 +384,13 @@ const handlers = {
     ),
     dataRoot: store.root,
     version: app.getVersion(),
+    appInfo: {
+      version: app.getVersion(),
+      electron: process.versions.electron,
+      chrome: process.versions.chrome,
+      node: process.versions.node,
+      platform: `${process.platform} (${process.arch})`,
+    },
     chromeInstalled: !!chromePath(),
   }),
   "profile.import": async () => {
@@ -1424,6 +1474,7 @@ if (!app.requestSingleInstanceLock()) {
           return { ok: false, error: error.message };
         }
       });
+      installAppMenu();
       if (!background) createWindow();
       if (process.argv.includes("--run-schedules")) {
         await runDue();

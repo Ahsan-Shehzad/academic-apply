@@ -22,6 +22,7 @@ export interface Snapshot {
   documentPlans?: Record<string, RecordData>;
   dataRoot: string;
   version: string;
+  appInfo?: RecordData;
   chromeInstalled: boolean;
   connectors: RecordData[];
 }
