@@ -1076,6 +1076,11 @@ const handlers = {
       z.string().parse(args.id),
       z.boolean().parse(args.enabled),
     ),
+  "connector.enableMany": (args) =>
+    connectors.enableMany(
+      z.array(z.string()).max(200).parse(args.ids),
+      z.boolean().parse(args.enabled),
+    ),
   "connector.configure": (args) =>
     connectors.configure(
       z

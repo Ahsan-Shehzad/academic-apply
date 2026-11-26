@@ -405,6 +405,22 @@ class Connectors {
     return { message: enabled ? "Connector enabled." : "Connector disabled." };
   }
 
+  enableMany(ids, enabled) {
+    let count = 0;
+    this.store.transaction(() => {
+      for (const connectorId of ids || []) {
+        const record = this.store.get("connectors", connectorId);
+        if (!record) continue;
+        this.store.put("connectors", { ...record, enabled: !!enabled });
+        count++;
+      }
+    });
+    return {
+      count,
+      message: `${count} connector${count === 1 ? "" : "s"} ${enabled ? "enabled" : "disabled"}.`,
+    };
+  }
+
   async configure(config, token) {
     await this.validateUrl(config.endpoint);
 

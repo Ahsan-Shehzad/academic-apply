@@ -598,3 +598,21 @@ test("listingLinks extracts major job portal vacancy URLs and portal MCP detects
   assert.equal(res.jobs.length, 0);
   assert.ok(res.warnings[0].includes("Sign in"));
 });
+
+test("Connectors.enableMany enables and disables multiple installed connectors atomically", async () => {
+  const f = await fixture();
+  try {
+    const connectors = new Connectors(f.store);
+    const ids = ["academictransfer", "uniroles", "does-not-exist"];
+    const disabled = connectors.enableMany(ids, false);
+    assert.equal(disabled.count, 2);
+    assert.equal(connectors.isEnabled("academictransfer"), false);
+    assert.equal(connectors.isEnabled("uniroles"), false);
+    const enabled = connectors.enableMany(["academictransfer"], true);
+    assert.equal(enabled.count, 1);
+    assert.equal(connectors.isEnabled("academictransfer"), true);
+    assert.equal(connectors.isEnabled("uniroles"), false);
+  } finally {
+    f.cleanup();
+  }
+});

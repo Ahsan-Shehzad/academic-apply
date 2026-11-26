@@ -613,6 +613,40 @@ export default function AdvancedSearch({
               >
                 Select enabled sources for these countries
               </Button>
+              <Button
+                onClick={() =>
+                  change({
+                    sources: data.sources
+                      .filter((s) => {
+                        const c = data.connectors.find((x) => x.id === s.id);
+                        const status = c?.status || s.status || "";
+                        const countryOk =
+                          s.region === "All" ||
+                          (
+                            s.countries ||
+                            data.countries[s.region] ||
+                            []
+                          ).some((country: string) =>
+                            form.countries.includes(country),
+                          );
+                        const employerOk =
+                          !s.access?.startsWith("employer") ||
+                          !!c?.boards?.length;
+                        return (
+                          countryOk &&
+                          c?.enabled &&
+                          employerOk &&
+                          !["unavailable", "restricted", "manual", "not_found"].includes(
+                            status,
+                          )
+                        );
+                      })
+                      .map((s) => s.id),
+                  })
+                }
+              >
+                Select healthy sources (exclude blocked)
+              </Button>
               <Button onClick={() => change({ sources: [] })}>
                 Clear sources
               </Button>
