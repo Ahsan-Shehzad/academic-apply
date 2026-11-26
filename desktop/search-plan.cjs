@@ -138,22 +138,45 @@ function searchPlan(search) {
         `(${local[country].map(quote).join(" OR ")}) ${broad} ${quote(country)}`,
         "local titles",
       );
-  for (const country of countries)
-    for (const source of SOURCES.filter(
-      (s) =>
-        (search.sources || []).includes(s.id) &&
-        sourceMatches(s, { countries: [country] }),
-    ).slice(0, 8)) {
-      add(
-        country,
-        roles.join(" / "),
-        broad,
-        `site:${new URL(source.base).hostname} ${allRoles} ${broad} ${quote(country)}`,
-        "portal",
-      );
-    }
+  const SKIP_WEB_PORTAL_IDS = new Set([
+    "linkedin",
+    "indeed",
+    "glassdoor",
+    "monster",
+    "careerjet",
+    "talent",
+    "jooble",
+    "ziprecruiter",
+    "stepstone",
+    "seek",
+    "interfolio",
+    "bayt",
+    "naukrigulf",
+    "gulftalent",
+  ]);
+  const portalSources = SOURCES.filter(
+    (s) =>
+      (search.sources || []).includes(s.id) &&
+      !SKIP_WEB_PORTAL_IDS.has(s.id) &&
+      countries.some((c) => sourceMatches(s, { countries: [c] })),
+  ).slice(0, 10);
+  const countryScope =
+    countries.length > 1
+      ? "(" + countries.slice(0, 6).map(quote).join(" OR ") + ")"
+      : countries[0]
+        ? quote(countries[0])
+        : "";
+  for (const source of portalSources) {
+    add(
+      countries.join(" / ") || "Global",
+      roles.join(" / "),
+      broad,
+      `site:${new URL(source.base).hostname} ${allRoles} ${broad} ${countryScope}`,
+      "portal",
+    );
+  }
   const fingerprint = hash({
-    planVersion: 1,
+    planVersion: 2,
     year: new Date().getUTCFullYear(),
     countries: [...countries].sort(),
     roles,

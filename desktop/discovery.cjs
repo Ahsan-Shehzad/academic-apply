@@ -261,20 +261,48 @@ const countryNames = {
   AE: "United Arab Emirates",
   UAE: "United Arab Emirates",
   SA: "Saudi Arabia",
+  KSA: "Saudi Arabia",
   QA: "Qatar",
   OM: "Oman",
   KW: "Kuwait",
   BH: "Bahrain",
+  US: "United States",
+  USA: "United States",
+  SG: "Singapore",
 };
+const CITY_TO_COUNTRY = [
+  [/\b(?:abu dhabi|dubai|sharjah|al ain|ajman|ras al khaimah|uae)\b/i, "United Arab Emirates"],
+  [/\b(?:riyadh|jeddah|dhahran|thuwal|dammam|kaust|kfupm|ksa)\b/i, "Saudi Arabia"],
+  [/\b(?:manama|riffa|muharraq)\b/i, "Bahrain"],
+  [/\b(?:doha|education city|lusail)\b/i, "Qatar"],
+  [/\b(?:muscat|sohar|salalah|nizwa)\b/i, "Oman"],
+  [/\b(?:kuwait city|hawalli|salmiya)\b/i, "Kuwait"],
+  [/\b(?:london|cambridge|oxford|manchester|edinburgh|glasgow|birmingham|bristol|leeds|sheffield|southampton|nottingham|warwick|belfast|cardiff)\b/i, "United Kingdom"],
+  [/\b(?:dublin|galway|cork|maynooth|limerick)\b/i, "Ireland"],
+  [/\b(?:sydney|melbourne|brisbane|perth|adelaide|canberra)\b/i, "Australia"],
+  [/\b(?:munich|münchen|berlin|hamburg|frankfurt|heidelberg|aachen|stuttgart|tübingen|bonn|dresden)\b/i, "Germany"],
+  [/\b(?:zurich|zürich|lausanne|geneva|basel|bern)\b/i, "Switzerland"],
+  [/\b(?:amsterdam|delft|utrecht|eindhoven|leiden|rotterdam|groningen|wageningen|nijmegen|maastricht)\b/i, "Netherlands"],
+  [/\b(?:paris|lyon|toulouse|grenoble|saclay|sophia antipolis|nice|marseille)\b/i, "France"],
+  [/\b(?:singapore|ntu|nus)\b/i, "Singapore"],
+];
 function inferCountry(text) {
+  const s = String(text || "");
+  if (!s.trim()) return "Unknown";
   for (const country of ALL_COUNTRIES)
     if (
       new RegExp(
         "\\b" + country.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b",
         "i",
-      ).test(text)
+      ).test(s)
     )
       return country;
+  for (const [pattern, country] of CITY_TO_COUNTRY)
+    if (pattern.test(s) && ALL_COUNTRIES.includes(country)) return country;
+  if (/\bUAE\b|\bU\.A\.E\./.test(s)) return "United Arab Emirates";
+  if (/\bKSA\b/.test(s)) return "Saudi Arabia";
+  if (/\bUK\b|\bU\.K\./.test(s)) return "United Kingdom";
+  if (/\bUSA\b|\bU\.S\.A\./.test(s)) return "United States";
   return "Unknown";
 }
 function deadlineValue(raw) {
@@ -1745,4 +1773,5 @@ module.exports = {
   listingLinks,
   suitable,
   deadlineValue,
+  inferCountry,
 };

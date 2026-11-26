@@ -618,3 +618,68 @@ test("complete ad extraction recognizes employer deadline wording and explicitly
     }).requirements.some((r) => r.label === "Doctoral thesis"),
   );
 });
+
+test("query planning deduplicates portal queries, WebDiscovery batches 2 queries with action headroom, and city-country inference matches Gulf portals", async () => {
+  const { inferCountry } = require("../desktop/discovery.cjs");
+  assert.equal(inferCountry("Manama (On-site)"), "Bahrain");
+  assert.equal(inferCountry("Abu Dhabi (On-site)"), "United Arab Emirates");
+  assert.equal(inferCountry("Riyadh, KSA"), "Saudi Arabia");
+  assert.equal(inferCountry("Doha"), "Qatar");
+
+  const { SOURCES } = require("../desktop/core.cjs");
+  const plan = searchPlan({
+    countries: [
+      "Bahrain",
+      "Kuwait",
+      "Oman",
+      "Qatar",
+      "Saudi Arabia",
+      "United Arab Emirates",
+    ],
+    roles: ["Lecturer", "Assistant Professor", "Postdoctoral"],
+    keywords: "computer science, software engineering",
+    sources: SOURCES.map((s) => s.id),
+  });
+  const portalQueries = plan.queries.filter((q) => q.kind === "portal");
+  assert.ok(portalQueries.length <= 10);
+  assert.ok(
+    !portalQueries.some((q) =>
+      /site:(?:www\.)?(?:monster|careerjet|talent|jooble|linkedin|indeed)\./i.test(
+        q.query,
+      ),
+    ),
+  );
+
+  await fixture(async (store) => {
+    const batchSizes = [];
+    const limits = [];
+    const providers = {
+      run: async (prompt, options) => {
+        const batch = JSON.parse(prompt.split("Query data:\n")[1]);
+        batchSizes.push(batch.length);
+        limits.push(options.webActionLimit);
+        return JSON.stringify({
+          queries: batch.map((q) => ({
+            id: q.id,
+            status: "searched",
+            note: "ok",
+          })),
+          candidates: [link(batch[0], "city")],
+        });
+      },
+    };
+    const discovery = new Discovery(store, providers);
+    discovery.fetchPage = async (url) => page(url);
+    await new WebDiscovery(store, discovery, providers).run(
+      search({
+        countries: ["Bahrain", "United Arab Emirates", "Qatar", "Oman"],
+        roles: ["Lecturer"],
+        keywords: "computer science",
+      }),
+      () => {},
+      new AbortController().signal,
+    );
+    assert.ok(batchSizes.length > 0 && batchSizes.every((n) => n <= 2));
+    assert.ok(limits.every((l) => l >= 40));
+  });
+});

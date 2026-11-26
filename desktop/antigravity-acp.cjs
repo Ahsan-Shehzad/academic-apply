@@ -101,11 +101,15 @@ class AntigravityACP extends EventEmitter {
         JSON.stringify({ jsonrpc: "2.0", ...message }) + "\n",
       );
   }
-  request(method, params = {}, timeout = 30000, signal) {
+  request(method, params = {}, timeout = 30000, signal, options = {}) {
     if (this.closed)
       return Promise.reject(new Error("Antigravity ACP is disconnected."));
     return new Promise((resolve, reject) => {
       const id = ++this.counter;
+      const started = Date.now();
+      const maxTotal =
+        options.maxTotalTimeout || Math.max(timeout * 2, timeout + 180000);
+      let timer = null;
       const abort = () => {
         this.pending.delete(id);
         clearTimeout(timer);
@@ -116,16 +120,29 @@ class AntigravityACP extends EventEmitter {
           }),
         );
       };
-      const timer = setTimeout(() => {
+      const onTimeout = () => {
         this.pending.delete(id);
         signal?.removeEventListener("abort", abort);
         if (method !== "session/close") this.unhealthy = true;
         reject(new Error(`${method} timed out`));
-      }, timeout);
+      };
+      const arm = () => {
+        clearTimeout(timer);
+        const remaining = maxTotal - (Date.now() - started);
+        if (remaining <= 0) return onTimeout();
+        timer = setTimeout(onTimeout, Math.min(timeout, remaining));
+      };
+      arm();
       this.pending.set(id, {
         resolve,
         reject,
-        timer,
+        sessionId: options.sessionId || null,
+        get timer() {
+          return timer;
+        },
+        touch: () => {
+          if (this.pending.has(id)) arm();
+        },
         cleanup: () => signal?.removeEventListener("abort", abort),
       });
       if (signal?.aborted) {
@@ -324,6 +341,9 @@ class AntigravityACP extends EventEmitter {
         m.params?.sessionId !== session.sessionId
       )
         return;
+      for (const pending of this.pending.values()) {
+        if (pending.sessionId === session.sessionId) pending.touch?.();
+      }
       const u = m.params.update;
       if (
         options.webSearch &&
@@ -421,6 +441,7 @@ class AntigravityACP extends EventEmitter {
         { sessionId: session.sessionId, prompt: [{ type: "text", text }] },
         options.timeout || 180000,
         controller.signal,
+        { sessionId: session.sessionId },
       );
       completed = true;
       if (cancelled || r.stopReason === "cancelled")

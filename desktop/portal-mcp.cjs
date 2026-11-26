@@ -1,8 +1,8 @@
 "use strict";
 const http = require("node:http");
 const crypto = require("node:crypto");
-const { SOURCES, canonicalUrl } = require("./core.cjs");
-const { extractListing, safeUrl } = require("./discovery.cjs");
+const { SOURCES, ALL_COUNTRIES, canonicalUrl } = require("./core.cjs");
+const { extractListing, safeUrl, inferCountry } = require("./discovery.cjs");
 const { searchUrl } = require("./source-catalog.cjs");
 
 const MAJOR_PORTALS = [
@@ -40,12 +40,55 @@ function firstQueryTerms(query) {
   return parts.length ? parts.slice(0, 3) : ["computer science"];
 }
 
-function firstLocation(location) {
+function locationTerms(location) {
   const parts = String(location || "")
     .split(/[,;\n]+/)
     .map((s) => s.trim())
     .filter(Boolean);
-  return parts[0] || "";
+  if (!parts.length) return [];
+  // Prioritize major markets first when many countries are passed so a small first-alphabet country
+  // (e.g. Bahrain before UAE/Saudi Arabia/Qatar) does not monopolize single-location portal URLs.
+  const priority = new Map(
+    [
+      "United States",
+      "United Kingdom",
+      "Germany",
+      "United Arab Emirates",
+      "Saudi Arabia",
+      "Singapore",
+      "Australia",
+      "Netherlands",
+      "Switzerland",
+      "Qatar",
+      "Canada",
+      "France",
+      "Ireland",
+      "Sweden",
+      "Norway",
+      "Denmark",
+      "Bahrain",
+      "Oman",
+      "Kuwait",
+    ].map((c, i) => [c.toLowerCase(), i]),
+  );
+  return [...new Set(parts)].sort(
+    (a, b) =>
+      (priority.get(a.toLowerCase()) ?? 99) -
+      (priority.get(b.toLowerCase()) ?? 99),
+  );
+}
+
+function normalizeTargetCountries(location) {
+  const parts = locationTerms(location);
+  const resolved = new Set();
+  for (const part of parts) {
+    if (ALL_COUNTRIES.includes(part)) resolved.add(part);
+    else {
+      const inferred = inferCountry(part);
+      if (inferred !== "Unknown") resolved.add(inferred);
+    }
+  }
+  return resolved;
 }
 
 function portalSearchTarget(portalId, query, location) {
@@ -460,14 +503,28 @@ class PortalMcpServer {
     if (!this.browser)
       throw new Error("Browser service is unavailable for portal search.");
     const queries = firstQueryTerms(query);
-    const loc = firstLocation(location);
+    const locs = locationTerms(location);
+    const targetCountries = normalizeTargetCountries(location);
+    const searchLocs = locs.length
+      ? ["linkedin", "indeed", "glassdoor"].includes(portalId)
+        ? locs.slice(0, 4)
+        : [locs[0]]
+      : [""];
+    const searchPairs = [];
+    for (const loc of searchLocs) {
+      for (const q of queries) {
+        searchPairs.push({ q, loc });
+        if (searchPairs.length >= 4) break;
+      }
+      if (searchPairs.length >= 4) break;
+    }
     const context = await this.browser.launch();
     const page = await context.newPage();
     const collected = new Map();
     const warnings = [];
     let gated = false;
     try {
-      for (const q of queries) {
+      for (const { q, loc } of searchPairs) {
         if (signal?.aborted) throw new Error("Portal search cancelled");
         if (collected.size >= maxResults) break;
         const { source, url } = portalSearchTarget(portalId, q, loc);
@@ -490,7 +547,7 @@ class PortalMcpServer {
           const extracted = await extractPortalCardsFromPage(
             page,
             portalId,
-            maxResults - collected.size,
+            Math.max(maxResults * 2, maxResults - collected.size),
           );
           if (extracted.gated) {
             gated = true;
@@ -504,16 +561,32 @@ class PortalMcpServer {
             try {
               cleanUrl = canonicalUrl(cleanUrl);
             } catch {}
-            if (!collected.has(cleanUrl)) {
+            const inferred = inferCountry(
+              `${card.location || ""} ${card.title || ""} ${card.snippet || ""}`,
+            );
+            if (
+              targetCountries.size &&
+              inferred !== "Unknown" &&
+              !targetCountries.has(inferred)
+            )
+              continue;
+            const resolvedCountry =
+              inferred !== "Unknown"
+                ? inferred
+                : targetCountries.size === 1
+                  ? [...targetCountries][0]
+                  : loc && ALL_COUNTRIES.includes(loc)
+                    ? loc
+                    : source.countries?.length === 1
+                      ? source.countries[0]
+                      : "Unknown";
+            if (!collected.has(cleanUrl) && collected.size < maxResults) {
               collected.set(cleanUrl, {
                 ...card,
                 url: cleanUrl,
                 portal: portalId,
                 sourceName: source.name,
-                country:
-                  card.location ||
-                  loc ||
-                  (source.countries?.length === 1 ? source.countries[0] : "Unknown"),
+                country: resolvedCountry,
               });
             }
           }
@@ -596,6 +669,10 @@ class PortalMcpServer {
                   : parsed.title && !/^jobs \| linkedin$/i.test(parsed.title)
                     ? parsed.title
                     : item.title;
+              const detailCountry =
+                parsed.country && parsed.country !== "Unknown"
+                  ? parsed.country
+                  : inferCountry(`${item.location || ""} ${bestDesc.slice(0, 1000)}`);
               record = {
                 ...parsed,
                 url: item.url,
@@ -605,8 +682,8 @@ class PortalMcpServer {
                     ? parsed.institution
                     : item.institution || "Institution not identified",
                 country:
-                  parsed.country && parsed.country !== "Unknown"
-                    ? parsed.country
+                  detailCountry && detailCountry !== "Unknown"
+                    ? detailCountry
                     : item.country || "Unknown",
                 description: bestDesc,
                 browserVerified: true,
@@ -632,9 +709,16 @@ class PortalMcpServer {
     const location = String(args.location || "").trim();
     const maxResults = Math.min(50, Math.max(5, Number(args.maxResults) || 20));
     if (name === "search_all_major_portals") {
+      const targetCountries = normalizeTargetCountries(location);
+      const regionalDefaultPortals = MAJOR_PORTALS.filter((p) => {
+        if (!targetCountries.size) return true;
+        const src = SOURCES.find((s) => s.id === p);
+        if (!src || !src.countries) return true;
+        return src.countries.some((c) => targetCountries.has(c));
+      });
       const targetPortals = Array.isArray(args.portals) && args.portals.length
         ? args.portals.filter((p) => SOURCES.some((s) => s.id === p))
-        : MAJOR_PORTALS;
+        : regionalDefaultPortals;
       const perPortal = Math.max(4, Math.ceil(maxResults / Math.max(1, targetPortals.length)) + 2);
       const startedAt = Date.now();
       const allJobs = [];

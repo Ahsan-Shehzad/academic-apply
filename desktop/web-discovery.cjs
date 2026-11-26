@@ -153,6 +153,8 @@ function parseLinks(value, batch) {
   }
   return { queries, candidates };
 }
+const WEB_BATCH_SIZE = 2;
+
 async function collectLinks(
   providers,
   batch,
@@ -161,7 +163,7 @@ async function collectLinks(
   signal?.throwIfAborted();
   const activities = [];
   const output = await providers.run(
-    `Today is ${new Date().toISOString().slice(0, 10)}. Find current open or newly advertised vacancies. Exclude announcements explicitly closed, expired or archived; keep plausible ads with unclear dates for later verification. Use native internet search to run EACH of the ${batch.length} queries below. This is URL discovery, not full listing drafting. Collect as many distinct vacancy detail links as the search results substantiate, up to 20 per query and 80 total. Prefer original employer announcements; include relevant academic portals too. Use the supplied query id for every result. Keep exact advertised titles, institutions, location and a short search-result evidence excerpt of at most 360 characters; use Unknown / Institution not identified when not stated. Do not guess URLs or details. Include only links actually returned by your search tools, not invented links or generic search homepages. alternateUrls may contain an official employer equivalent ONLY if retrieved. Do not discard a plausible role merely because its full page is blocked or because it lacks the exact specialist keyword. Broad computing/AI faculty roles are intentionally relevant alongside specialist speech/cognition research. Report unavailable if your internet search tool cannot run. Do not pretend a query was executed. Search snippets are provisional, not verified listing text. No shell, local files, email, form actions, scraping Google HTML or bypassing site restrictions. Return ONLY the requested JSON. Query data:\n${JSON.stringify(batch)}`,
+    `Today is ${new Date().toISOString().slice(0, 10)}. Find current open or newly advertised vacancies. Exclude announcements explicitly closed, expired or archived; keep plausible ads with unclear dates for later verification. Use native internet search efficiently (at most 3-4 concise searches per query) to run EACH of the ${batch.length} queries below. This is URL discovery, not full listing drafting. Collect up to 12 distinct vacancy detail links per query (24 total). Prefer original employer announcements; include relevant academic portals too. Use the supplied query id for every result. Keep exact advertised titles, institutions, location and a concise evidence excerpt under 220 characters; use Unknown / Institution not identified when not stated. Do not guess URLs or details. Include only links actually returned by your search tools, not invented links or generic search homepages. alternateUrls may contain an official employer equivalent ONLY if retrieved. Do not discard a plausible role merely because its full page is blocked or because it lacks the exact specialist keyword. Broad computing/AI faculty roles are intentionally relevant alongside specialist research. Report unavailable if your internet search tool cannot run. Do not pretend a query was executed. Search snippets are provisional, not verified listing text. No shell, local files, email, form actions, scraping Google HTML or bypassing site restrictions. Return ONLY concise JSON without extra prose. Query data:\n${JSON.stringify(batch)}`,
     {
       workflow: "discovery",
       taskId: task?.id,
@@ -170,8 +172,8 @@ async function collectLinks(
       readOnlyTools: true,
       skipConsent,
       outputSchema: LINK_SCHEMA,
-      timeout: 240000,
-      webActionLimit: 24,
+      timeout: 300000,
+      webActionLimit: 40,
       signal,
       onWebActivity: (event) => activities.push(event),
     },
@@ -595,13 +597,13 @@ class WebDiscovery {
         candidateIds.size < budget.candidates &&
         jobIds.size < cap &&
         Date.now() < deadline;
-        offset += 4
+        offset += WEB_BATCH_SIZE
       ) {
         signal?.throwIfAborted();
-        const batch = selected.slice(offset, offset + 4);
+        const batch = selected.slice(offset, offset + WEB_BATCH_SIZE);
         result.queriesRequested += batch.length;
         task?.({
-          message: `Web discovery: query batch ${Math.floor(offset / 4) + 1}/${Math.ceil(selected.length / 4)} · ${batch.map((q) => q.country).join(", ")}`,
+          message: `Web discovery: query batch ${Math.floor(offset / WEB_BATCH_SIZE) + 1}/${Math.ceil(selected.length / WEB_BATCH_SIZE)} · ${batch.map((q) => q.country).join(", ")}`,
           progress:
             5 + Math.round((offset / Math.max(1, selected.length)) * 25),
         });
@@ -685,7 +687,8 @@ class WebDiscovery {
           Math.max(
             4,
             Math.ceil(
-              budget.details / Math.max(1, Math.ceil(selected.length / 4)),
+              budget.details /
+                Math.max(1, Math.ceil(selected.length / WEB_BATCH_SIZE)),
             ),
           ),
         );

@@ -107,6 +107,141 @@ async function runSearch(
           signal,
         ),
     });
+  const mcpResults = [];
+  if (search.mcpTools?.length) {
+    operations.push({
+      name: "Connected MCP sources",
+      run: async () => {
+        const mcpCap = Math.max(
+          50,
+          search.maxResults || store.settings().maxResults || 30,
+        );
+        const mcpJobIds = [];
+        const mcpReports = [];
+        let mcpFailed = 0;
+        let mcpAdded = 0;
+        let mcpUpdated = 0;
+        for (const config of search.mcpTools || []) {
+          if (signal?.aborted) throw new Error("Search cancelled");
+          if (mcpJobIds.length >= mcpCap) {
+            task?.({
+              message: "Result budget reached. Remaining MCP tools were not run.",
+            });
+            break;
+          }
+          task?.({
+            message: `Searching connected MCP source: ${store.get("connectors", config.connectorId)?.name || config.connectorId}`,
+          });
+          try {
+            const reader = {
+              import: async (url, sig, _task, { mcpRecord } = {}) => {
+                let job = null;
+                try {
+                  job = await engine.import(url, sig, task, {
+                    persist: false,
+                    providerResearch: false,
+                  });
+                } catch (error) {
+                  if (sig?.aborted) throw error;
+                  if (
+                    mcpRecord?.description &&
+                    mcpRecord.description.length >= 150 &&
+                    mcpRecord.title
+                  ) {
+                    await require("./discovery.cjs").safeUrl(url);
+                    job = require("./core.cjs").JobSchema.parse({
+                      title: mcpRecord.title,
+                      institution:
+                        mcpRecord.institution || "Institution not identified",
+                      country: mcpRecord.country || "Unknown",
+                      url,
+                      applicationUrl: mcpRecord.applicationUrl || url,
+                      description: mcpRecord.description,
+                      focus: mcpRecord.description.slice(0, 700),
+                      deadline: mcpRecord.deadline ?? null,
+                      official: !!mcpRecord.official,
+                    });
+                    job.verification = {
+                      status: mcpRecord.browserVerified
+                        ? "browser_verified"
+                        : "mcp_reported",
+                      url,
+                      at: require("./core.cjs").now(),
+                    };
+                  } else throw error;
+                }
+                if (
+                  !suitable(job, search) ||
+                  !advancedMatch(job, search, store.get("profile", "main")?.data)
+                )
+                  return null;
+                if (new Set(mcpJobIds).size >= mcpCap) return null;
+                const saved = discovery.save(
+                  job,
+                  "MCP search: " + store.get("connectors", config.connectorId)?.name,
+                );
+                mcpJobIds.push(saved.job.id);
+                saved.isNew ? mcpAdded++ : mcpUpdated++;
+                return saved.job;
+              },
+            };
+            const response = await connectors.run(
+              config.connectorId,
+              config.tool,
+              expandArguments(config.arguments, search),
+              reader,
+              task,
+              signal,
+            );
+            mcpResults.push({ connectorId: config.connectorId, ...response });
+            mcpReports.push(
+              sourceOutcome(
+                {
+                  id: config.connectorId,
+                  name:
+                    store.get("connectors", config.connectorId)?.name ||
+                    config.connectorId,
+                },
+                {
+                  status: response.failed ? "partial" : "available",
+                  candidateCount: response.jobIds?.length,
+                  message: response.message,
+                },
+              ),
+            );
+          } catch (error) {
+            if (signal?.aborted) throw error;
+            mcpFailed++;
+            mcpReports.push(
+              sourceOutcome(
+                {
+                  id: config.connectorId,
+                  name:
+                    store.get("connectors", config.connectorId)?.name ||
+                    config.connectorId,
+                },
+                accessIssue(error),
+              ),
+            );
+            mcpResults.push({
+              connectorId: config.connectorId,
+              message: error.message,
+            });
+            task?.({ message: error.message, level: "warning" });
+          }
+        }
+        return {
+          jobIds: mcpJobIds,
+          added: mcpAdded,
+          updated: mcpUpdated,
+          failed: mcpFailed,
+          sourcesChecked: 0,
+          sourceReport: mcpReports,
+          candidateCount: 0,
+        };
+      },
+    });
+  }
   const outcomes = await Promise.allSettled(operations.map((o) => o.run()));
   signal?.throwIfAborted();
   let succeeded = 0;
@@ -161,123 +296,6 @@ async function runSearch(
   if (!succeeded && outcomes.length && !search.mcpTools?.length)
     throw outcomes[0].reason || new Error("Discovery could not run");
   result.webSearchEnabled = !!webAllowed;
-  const mcpResults = [];
-  for (const config of search.mcpTools || []) {
-    if (signal?.aborted) throw new Error("Search cancelled");
-    if (
-      result.jobIds.length >=
-      Math.max(50, search.maxResults || store.settings().maxResults || 30)
-    ) {
-      task?.({
-        message: "Result budget reached. Remaining MCP tools were not run.",
-      });
-      break;
-    }
-    task?.({
-      message: `Searching connected MCP source: ${store.get("connectors", config.connectorId)?.name || config.connectorId}`,
-    });
-    try {
-      const reader = {
-        import: async (url, sig, _task, { mcpRecord } = {}) => {
-          let job = null;
-          try {
-            job = await engine.import(url, sig, task, {
-              persist: false,
-              providerResearch: false,
-            });
-          } catch (error) {
-            if (sig?.aborted) throw error;
-            if (
-              mcpRecord?.description &&
-              mcpRecord.description.length >= 150 &&
-              mcpRecord.title
-            ) {
-              await require("./discovery.cjs").safeUrl(url);
-              job = require("./core.cjs").JobSchema.parse({
-                title: mcpRecord.title,
-                institution:
-                  mcpRecord.institution || "Institution not identified",
-                country: mcpRecord.country || "Unknown",
-                url,
-                applicationUrl: mcpRecord.applicationUrl || url,
-                description: mcpRecord.description,
-                focus: mcpRecord.description.slice(0, 700),
-                deadline: mcpRecord.deadline ?? null,
-                official: !!mcpRecord.official,
-              });
-              job.verification = {
-                status: mcpRecord.browserVerified
-                  ? "browser_verified"
-                  : "mcp_reported",
-                url,
-                at: require("./core.cjs").now(),
-              };
-            } else throw error;
-          }
-          if (
-            !suitable(job, search) ||
-            !advancedMatch(job, search, store.get("profile", "main")?.data)
-          )
-            return null;
-          if (
-            new Set(result.jobIds).size >=
-            Math.max(50, search.maxResults || store.settings().maxResults || 30)
-          )
-            return null;
-          const saved = discovery.save(
-            job,
-            "MCP search: " + store.get("connectors", config.connectorId)?.name,
-          );
-          result.jobIds.push(saved.job.id);
-          saved.isNew ? result.added++ : result.updated++;
-          return saved.job;
-        },
-      };
-      const response = await connectors.run(
-        config.connectorId,
-        config.tool,
-        expandArguments(config.arguments, search),
-        reader,
-        task,
-        signal,
-      );
-      mcpResults.push({ connectorId: config.connectorId, ...response });
-      (result.sourceReport ||= []).push(
-        sourceOutcome(
-          {
-            id: config.connectorId,
-            name:
-              store.get("connectors", config.connectorId)?.name ||
-              config.connectorId,
-          },
-          {
-            status: response.failed ? "partial" : "available",
-            candidateCount: response.jobIds?.length,
-            message: response.message,
-          },
-        ),
-      );
-    } catch (error) {
-      if (signal?.aborted) throw error;
-      result.failed++;
-      (result.sourceReport ||= []).push(
-        sourceOutcome(
-          {
-            id: config.connectorId,
-            name:
-              store.get("connectors", config.connectorId)?.name ||
-              config.connectorId,
-          },
-          accessIssue(error),
-        ),
-      );
-      mcpResults.push({
-        connectorId: config.connectorId,
-        message: error.message,
-      });
-      task?.({ message: error.message, level: "warning" });
-    }
-  }
   const distinctIds = [...new Set(result.jobIds)];
   const added = distinctIds.filter((id) => !beforeIds.has(id)).length,
     updated = distinctIds.length - added;
