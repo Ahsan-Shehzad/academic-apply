@@ -113,6 +113,9 @@ const defaultSettings = () => ({
   contactEmail: "",
   documentRoot: "",
   maxResults: 30,
+  chromeProfileMode: "dedicated",
+  chromeProfileDirectory: "",
+  chromeUserDataDir: "",
 });
 const JobSchema = z.object({
   title: z.string().min(2).max(400),

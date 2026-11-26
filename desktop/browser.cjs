@@ -4,6 +4,7 @@ const { packageCoverage } = require("./document-requirements.cjs");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { spawn } = require("node:child_process");
 const { chromium } = require("playwright-core");
 const { id, now, hash, parseJson, inside } = require("./core.cjs");
 const { safeUrl } = require("./discovery.cjs");
@@ -44,6 +45,90 @@ function chromePath() {
       "chrome.exe",
     ),
   ].find((f) => fs.existsSync(f));
+}
+function defaultChromeUserDataDir() {
+  if (process.platform === "win32") {
+    return path.join(
+      process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"),
+      "Google",
+      "Chrome",
+      "User Data",
+    );
+  }
+  if (process.platform === "darwin") {
+    return path.join(
+      os.homedir(),
+      "Library",
+      "Application Support",
+      "Google",
+      "Chrome",
+    );
+  }
+  return path.join(os.homedir(), ".config", "google-chrome");
+}
+function detectChromeProfiles(customUserDataDir = "") {
+  const userDataDir =
+    String(customUserDataDir || "").trim() || defaultChromeUserDataDir();
+  if (!userDataDir || !fs.existsSync(userDataDir)) {
+    return { userDataDir, exists: false, profiles: [] };
+  }
+  let infoCache = {};
+  try {
+    const localState = JSON.parse(
+      fs.readFileSync(path.join(userDataDir, "Local State"), "utf8"),
+    );
+    infoCache = localState?.profile?.info_cache || {};
+  } catch {}
+  const dirs = new Set(Object.keys(infoCache));
+  try {
+    for (const entry of fs.readdirSync(userDataDir, { withFileTypes: true })) {
+      if (
+        entry.isDirectory() &&
+        (entry.name === "Default" || /^Profile \d+$/i.test(entry.name))
+      ) {
+        dirs.add(entry.name);
+      }
+    }
+  } catch {}
+  const profiles = [...dirs]
+    .filter((dir) => {
+      if (["Guest Profile", "System Profile"].includes(dir)) return false;
+      return fs.existsSync(path.join(userDataDir, dir));
+    })
+    .sort((a, b) => {
+      if (a === "Default") return -1;
+      if (b === "Default") return 1;
+      return a.localeCompare(b, undefined, { numeric: true });
+    })
+    .map((directory) => {
+      const info = infoCache[directory] || {};
+      return {
+        directory,
+        name: String(info.name || info.shortcut_name || directory).trim(),
+        userName: String(info.user_name || "").trim(),
+        gaiaName: String(info.gaia_name || "").trim(),
+      };
+    });
+  return { userDataDir, exists: true, profiles };
+}
+function copyPathSafe(src, dest, stats) {
+  if (!fs.existsSync(src)) return;
+  try {
+    const st = fs.statSync(src);
+    if (st.isDirectory()) {
+      fs.mkdirSync(dest, { recursive: true });
+      for (const entry of fs.readdirSync(src)) {
+        if (entry === "LOCK" || entry === "lockfile") continue;
+        copyPathSafe(path.join(src, entry), path.join(dest, entry), stats);
+      }
+      return;
+    }
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.copyFileSync(src, dest);
+    stats.copied.push(path.basename(dest));
+  } catch (error) {
+    stats.locked.push({ path: src, code: error.code || error.message });
+  }
 }
 async function snapshotPage(page) {
   const fields = [],
@@ -279,29 +364,181 @@ class Browser {
       });
     return this.launching;
   }
+  profileTarget(settings = this.store.settings?.() || {}) {
+    const mode = settings?.chromeProfileMode === "google" ? "google" : "dedicated";
+    if (mode === "google") {
+      const userDataDir =
+        String(settings?.chromeUserDataDir || "").trim() ||
+        defaultChromeUserDataDir();
+      const detected = detectChromeProfiles(userDataDir);
+      const requested = String(settings?.chromeProfileDirectory || "").trim();
+      const profileDirectory =
+        requested && fs.existsSync(path.join(userDataDir, requested))
+          ? requested
+          : detected.profiles[0]?.directory || requested || "Default";
+      return { mode, userDataDir, profileDirectory };
+    }
+    return {
+      mode: "dedicated",
+      userDataDir: path.join(this.store.root, "chrome-profile"),
+      profileDirectory: "",
+    };
+  }
   async openContext() {
     const executablePath = chromePath();
     if (!executablePath)
       throw new Error(
         "Google Chrome is not installed. Install Chrome to use portal automation.",
       );
-    this.context = await chromium.launchPersistentContext(
-      path.join(this.store.root, "chrome-profile"),
-      {
+    const target = this.profileTarget();
+    if (target.mode === "google" && !fs.existsSync(target.userDataDir)) {
+      throw new Error(
+        `Configured Google Chrome User Data folder was not found: ${target.userDataDir}`,
+      );
+    }
+    fs.mkdirSync(target.userDataDir, { recursive: true });
+    const args = [
+      "--disable-session-crashed-bubble",
+      "--disable-blink-features=AutomationControlled",
+      "--no-first-run",
+      "--no-default-browser-check",
+    ];
+    if (target.profileDirectory) {
+      args.push(`--profile-directory=${target.profileDirectory}`);
+    }
+    try {
+      this.context = await chromium.launchPersistentContext(target.userDataDir, {
         executablePath,
         headless: false,
         viewport: null,
         acceptDownloads: true,
-        args: ["--disable-session-crashed-bubble"],
-        ignoreDefaultArgs: ["--enable-automation"],
-      },
-    );
+        args,
+        ignoreDefaultArgs: [
+          "--enable-automation",
+          "--disable-component-update",
+        ],
+      });
+    } catch (error) {
+      const msg = String(error?.message || error);
+      if (
+        target.mode === "google" &&
+        /ProcessSingleton|TargetClosedError|existing browser|user data directory|in use/i.test(
+          msg,
+        )
+      ) {
+        throw new Error(
+          `Your Google Chrome profile (${target.profileDirectory}) is currently open in Chrome, so automated browser tasks cannot share its lock simultaneously. Close Chrome windows briefly during automated search/Apply, or switch to 'Dedicated profile' in Settings and click 'Import Chrome sessions'.`,
+        );
+      }
+      throw error;
+    }
     this.context.on("close", () => {
       this.context = null;
       this.sessions.clear();
       this.applicationTabs.clear();
     });
     return this.context;
+  }
+  async openCleanChrome(urls = []) {
+    const executablePath = chromePath();
+    if (!executablePath)
+      throw new Error(
+        "Google Chrome is not installed. Install Chrome to sign in or pass portal checks.",
+      );
+    const target = this.profileTarget();
+    if (target.mode === "dedicated" && this.context) {
+      await this.close().catch(() => {});
+    }
+    fs.mkdirSync(target.userDataDir, { recursive: true });
+    const safeTargets = (Array.isArray(urls) ? urls : [urls])
+      .map((u) => String(u || "").trim())
+      .filter((u) => /^https?:\/\//i.test(u))
+      .slice(0, 12);
+    const finalUrls = safeTargets.length
+      ? safeTargets
+      : ["https://accounts.google.com/"];
+    const args = [
+      `--user-data-dir=${target.userDataDir}`,
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--new-window",
+    ];
+    if (target.profileDirectory) {
+      args.push(`--profile-directory=${target.profileDirectory}`);
+    }
+    args.push(...finalUrls);
+    const child = spawn(executablePath, args, {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: false,
+    });
+    child.unref();
+    return {
+      mode: target.mode,
+      userDataDir: target.userDataDir,
+      profileDirectory: target.profileDirectory,
+      urls: finalUrls,
+      message:
+        target.mode === "google"
+          ? `Opened a standard Google Chrome window using your '${target.profileDirectory}' profile. Sign in or complete verification there; close Chrome windows briefly when running automated searches with that profile directly.`
+          : "Opened a standard (non-automated) Chrome window on AcademicApply's dedicated profile so Google Sign-In and Cloudflare checks treat it as a normal browser. Sign in and verify there, then close that Chrome window before running automated discovery or Apply.",
+    };
+  }
+  async importFromChromeProfile(profileDirectory, customUserDataDir = "") {
+    const currentSettings = this.store.settings?.() || {};
+    const detected = detectChromeProfiles(
+      customUserDataDir || currentSettings.chromeUserDataDir || "",
+    );
+    if (!detected.exists || !detected.profiles.length) {
+      throw new Error(
+        `No Google Chrome profiles were found in ${detected.userDataDir}.`,
+      );
+    }
+    const chosen =
+      detected.profiles.find((p) => p.directory === profileDirectory) ||
+      detected.profiles[0];
+    const srcProfileDir = path.join(detected.userDataDir, chosen.directory);
+    if (!fs.existsSync(srcProfileDir)) {
+      throw new Error(`Chrome profile directory not found: ${srcProfileDir}`);
+    }
+    await this.close().catch(() => {});
+    const dedicatedRoot = path.join(this.store.root, "chrome-profile");
+    const destProfileDir = path.join(dedicatedRoot, "Default");
+    fs.mkdirSync(destProfileDir, { recursive: true });
+    const stats = { copied: [], locked: [] };
+    // Local State contains the DPAPI-encrypted os_crypt key needed to decrypt copied Chrome cookies on Windows.
+    copyPathSafe(
+      path.join(detected.userDataDir, "Local State"),
+      path.join(dedicatedRoot, "Local State"),
+      stats,
+    );
+    for (const rel of [
+      "Preferences",
+      path.join("Network", "Cookies"),
+      "Cookies",
+      path.join("Local Storage", "leveldb"),
+      "Session Storage",
+    ]) {
+      copyPathSafe(
+        path.join(srcProfileDir, rel),
+        path.join(destProfileDir, rel),
+        stats,
+      );
+    }
+    const cookieLocked = stats.locked.some((item) =>
+      /Cookies$/i.test(item.path),
+    );
+    if (cookieLocked || !stats.copied.length) {
+      throw new Error(
+        `Chrome is currently holding a file lock on '${chosen.name}' (${chosen.directory}) cookies. Close all Google Chrome windows for a moment, click 'Import Chrome sessions' again, and then you can reopen your personal Chrome normally.`,
+      );
+    }
+    return {
+      importedProfile: chosen,
+      copiedCount: stats.copied.length,
+      lockedCount: stats.locked.length,
+      message: `Imported signed-in sessions from Chrome profile '${chosen.name}' (${chosen.directory}) into AcademicApply's dedicated browser profile (${stats.copied.length} session files copied).`,
+    };
   }
   async start(jobId, packageId) {
     const job = this.store.getJob(jobId);
@@ -893,6 +1130,8 @@ class Browser {
 module.exports = {
   Browser,
   chromePath,
+  defaultChromeUserDataDir,
+  detectChromeProfiles,
   snapshotPage,
   snapshotHash,
   deterministicAnswers,

@@ -865,19 +865,33 @@ class PortalMcpServer {
   async openPortalsForLogin(portalIds = ["linkedin", "indeed", "glassdoor"]) {
     if (!this.browser)
       throw new Error("Chrome browser service is unavailable.");
+    const targets = portalIds.map((id) => ({
+      id,
+      url: portalLoginUrl(id),
+    }));
+    if (typeof this.browser.openCleanChrome === "function") {
+      const launchResult = await this.browser.openCleanChrome(
+        targets.map((item) => item.url),
+      );
+      return {
+        opened: targets,
+        ...launchResult,
+      };
+    }
     const context = await this.browser.launch();
     const opened = [];
-    for (const id of portalIds) {
-      const target = portalLoginUrl(id);
+    for (const item of targets) {
       const page = await context.newPage();
-      await page.goto(target, { waitUntil: "domcontentloaded", timeout: 35000 }).catch(() => {});
+      await page
+        .goto(item.url, { waitUntil: "domcontentloaded", timeout: 35000 })
+        .catch(() => {});
       await page.bringToFront().catch(() => {});
-      opened.push({ id, url: target });
+      opened.push(item);
     }
     return {
       opened,
       message:
-        "Opened portal sign-in tabs in AcademicApply's persistent Chrome window. Sign in to the portals you use, then run search or Test connector.",
+        "Opened portal sign-in tabs in AcademicApply's Chrome window. Sign in to the portals you use, then run search or Test connector.",
     };
   }
 

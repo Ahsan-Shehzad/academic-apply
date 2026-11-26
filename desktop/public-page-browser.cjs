@@ -19,6 +19,8 @@ class PublicPageBrowser {
       this.launching = this.launch({
         executablePath,
         headless: true,
+        args: ["--disable-blink-features=AutomationControlled"],
+        ignoreDefaultArgs: ["--enable-automation"],
       });
     const browser = await this.launching;
     const context = await browser.newContext({

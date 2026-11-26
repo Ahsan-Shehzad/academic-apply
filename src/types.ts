@@ -24,6 +24,21 @@ export interface Snapshot {
   version: string;
   appInfo?: RecordData;
   chromeInstalled: boolean;
+  chromeProfiles?: {
+    userDataDir: string;
+    exists: boolean;
+    profiles: {
+      directory: string;
+      name: string;
+      userName?: string;
+      gaiaName?: string;
+    }[];
+  };
+  chromeProfileTarget?: {
+    mode: string;
+    userDataDir: string;
+    profileDirectory: string;
+  };
   connectors: RecordData[];
 }
 export type Call = (

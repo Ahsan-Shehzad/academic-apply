@@ -29,7 +29,11 @@ const { Discovery, safeUrl } = require("./discovery.cjs");
 const { SupportingFiles, refereeRecords } = require("./supporting-files.cjs");
 const { packageCoverage } = require("./document-requirements.cjs");
 const { Documents, DOCUMENT_TYPES } = require("./documents.cjs");
-const { Browser, chromePath } = require("./browser.cjs");
+const {
+  Browser,
+  chromePath,
+  detectChromeProfiles,
+} = require("./browser.cjs");
 const { Tasks, dueSearches, scheduleAfterRun } = require("./tasks.cjs");
 const { taskSummary } = require("./task-summary.cjs");
 const { installScheduler, removeScheduler } = require("./scheduler.cjs");
@@ -295,6 +299,9 @@ const SettingsSchema = z.object({
   contactEmail: z.union([z.email(), z.literal("")]).optional(),
   maxResults: z.number().int().min(5).max(100).optional(),
   providerWebResearch: z.boolean().optional(),
+  chromeProfileMode: z.enum(["dedicated", "google"]).optional(),
+  chromeProfileDirectory: z.string().max(120).optional(),
+  chromeUserDataDir: z.string().max(1500).optional(),
 });
 const handlers = {
   ...createWebHandlers(() => ({
@@ -392,6 +399,8 @@ const handlers = {
       platform: `${process.platform} (${process.arch})`,
     },
     chromeInstalled: !!chromePath(),
+    chromeProfiles: detectChromeProfiles(store.settings().chromeUserDataDir),
+    chromeProfileTarget: browser.profileTarget(store.settings()),
   }),
   "profile.import": async () => {
     const result = await dialog.showOpenDialog(window, {
@@ -1067,6 +1076,25 @@ const handlers = {
     tasks.track("browser", "Open Chrome research tab", (update) =>
       browserWorkspace.open(z.url().parse(args.url), update),
     ),
+  "browser.openCleanLogin": (args = {}) =>
+    tasks.track("browser", "Open clean Chrome window for sign-in", () =>
+      browser.openCleanChrome(
+        Array.isArray(args.urls)
+          ? z.array(z.url()).max(12).parse(args.urls)
+          : undefined,
+      ),
+    ),
+  "browser.importChromeProfile": (args = {}) =>
+    tasks.track("browser", "Import sessions from Google Chrome profile", () =>
+      browser.importFromChromeProfile(
+        args.profileDirectory
+          ? z.string().max(120).parse(args.profileDirectory)
+          : store.settings().chromeProfileDirectory || "Default",
+        args.userDataDir
+          ? z.string().max(1500).parse(args.userDataDir)
+          : store.settings().chromeUserDataDir || "",
+      ),
+    ),
   "browser.control": (args) =>
     tasks.track("browser", "Browser: " + args.action, () =>
       browserWorkspace.control(
@@ -1233,7 +1261,7 @@ const handlers = {
     providers.invalidateChanged(previous, updated);
     return result.filePaths[0];
   },
-  "settings.save": (args) => {
+  "settings.save": async (args) => {
     const previous = store.settings();
     const settings = {
       ...store.settings(),
@@ -1250,6 +1278,13 @@ const handlers = {
     }
     store.put("settings", settings);
     providers.invalidateChanged(previous, settings);
+    if (
+      previous.chromeProfileMode !== settings.chromeProfileMode ||
+      previous.chromeProfileDirectory !== settings.chromeProfileDirectory ||
+      previous.chromeUserDataDir !== settings.chromeUserDataDir
+    ) {
+      await browser.close().catch(() => {});
+    }
     return settings;
   },
   "settings.documentRoot": async () => {

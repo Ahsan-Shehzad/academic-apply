@@ -535,7 +535,14 @@ export default function Connectors({
             disabled={!!busy}
             onClick={() => call("connector.openPortals", {})}
           >
-            Sign in to portals (Chrome)
+            Sign in to portals (Clean Chrome)
+          </Button>
+          <Button
+            variant="outlined"
+            disabled={!!busy}
+            onClick={() => call("browser.openCleanLogin", {})}
+          >
+            Google sign-in (Clean Chrome)
           </Button>
           <Button
             variant="outlined"
@@ -568,8 +575,20 @@ export default function Connectors({
       <Alert severity="info">
         Source adapters are grouped by role and access status. Use{" "}
         <b>Attention needed</b> or <b>Sign-in / Chrome</b> filters to quickly
-        locate blocked portals, sign in once via Chrome, or disable unresponsive
-        sources in bulk.
+        locate blocked portals, sign in once via clean Chrome, or disable
+        unresponsive sources in bulk.
+        {data.chromeProfileTarget && (
+          <>
+            {" "}
+            Active Chrome profile:{" "}
+            <b>
+              {data.chromeProfileTarget.mode === "google"
+                ? `Google Chrome (${data.chromeProfileTarget.profileDirectory})`
+                : "Dedicated AcademicApply profile"}
+            </b>
+            .
+          </>
+        )}
       </Alert>
 
       <div className="connector-filter-chips">

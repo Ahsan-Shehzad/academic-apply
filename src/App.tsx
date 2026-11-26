@@ -5493,6 +5493,18 @@ function Settings({
   busy: string;
 }) {
   const settings = data.settings;
+  const [chromeDir, setChromeDir] = useState(settings.chromeUserDataDir || "");
+  useEffect(() => {
+    setChromeDir(settings.chromeUserDataDir || "");
+  }, [settings.chromeUserDataDir]);
+
+  const detectedProfiles = data.chromeProfiles?.profiles || [];
+  const profileMode =
+    settings.chromeProfileMode === "google" ? "google" : "dedicated";
+  const selectedProfile =
+    settings.chromeProfileDirectory ||
+    detectedProfiles[0]?.directory ||
+    "Default";
 
   const save = (patch: RecordData) =>
     call("settings.save", { settings: patch }, "Settings saved.");
@@ -5996,11 +6008,115 @@ function Settings({
               reviewable keyword list. This setting affects future packages.
             </p>
 
-            <p className="muted">
-              Chrome: {data.chromeInstalled ? "installed" : "not found"}. A
-              dedicated profile keeps portal and webmail sessions available
-              between runs.
-            </p>
+            <Divider />
+
+            <div>
+              <strong>Chrome profile and portal sign-in</strong>
+              <p className="muted">
+                Chrome: {data.chromeInstalled ? "installed" : "not found"}. To
+                avoid Google &ldquo;This browser or app may not be secure&rdquo;
+                blocks and Cloudflare loops during manual sign-in, portal
+                sign-in opens a clean Chrome window without automation hooks.
+              </p>
+            </div>
+
+            <div className="form-grid">
+              <TextField
+                select
+                size="small"
+                label="Browser profile mode"
+                value={profileMode}
+                disabled={!!busy}
+                onChange={(e) =>
+                  save({
+                    chromeProfileMode: e.target.value,
+                    chromeProfileDirectory: selectedProfile,
+                  })
+                }
+              >
+                <MenuItem value="dedicated">
+                  Dedicated AcademicApply profile (recommended — can import from Chrome)
+                </MenuItem>
+                <MenuItem value="google" disabled={!data.chromeProfiles?.exists}>
+                  Use my personal Google Chrome profile directly
+                </MenuItem>
+              </TextField>
+
+              <TextField
+                select
+                size="small"
+                label="Google Chrome profile"
+                value={selectedProfile}
+                disabled={!!busy || !detectedProfiles.length}
+                onChange={(e) =>
+                  save({ chromeProfileDirectory: e.target.value })
+                }
+                helperText={
+                  detectedProfiles.length
+                    ? `${detectedProfiles.length} Chrome profile(s) detected`
+                    : "No Google Chrome profiles found at the configured User Data folder"
+                }
+              >
+                {detectedProfiles.map((p) => (
+                  <MenuItem key={p.directory} value={p.directory}>
+                    {p.name}
+                    {p.userName ? ` (${p.userName})` : ` (${p.directory})`}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </div>
+
+            {profileMode === "google" && (
+              <Alert severity="warning">
+                Chrome allows only one process to hold an automated lock on{" "}
+                <code>{selectedProfile}</code> at a time. Keep Chrome closed
+                while running automated portal searches or Apply, or stay on{" "}
+                <strong>Dedicated profile</strong> and click{" "}
+                <strong>Import Chrome sessions</strong> below so you never need
+                to close Chrome during searches.
+              </Alert>
+            )}
+
+            <div className="tag-row">
+              <Button
+                variant="outlined"
+                disabled={!!busy || !data.chromeInstalled}
+                onClick={() => call("browser.openCleanLogin", {})}
+              >
+                Open clean Chrome for Google / portal sign-in
+              </Button>
+              <Button
+                variant="outlined"
+                disabled={!!busy || !detectedProfiles.length}
+                onClick={() =>
+                  call("browser.importChromeProfile", {
+                    profileDirectory: selectedProfile,
+                    userDataDir: chromeDir.trim(),
+                  })
+                }
+              >
+                Import Chrome sessions into dedicated profile
+              </Button>
+            </div>
+
+            <div className="flex-between">
+              <TextField
+                size="small"
+                fullWidth
+                label="Custom Chrome User Data directory (optional)"
+                value={chromeDir}
+                placeholder={data.chromeProfiles?.userDataDir || ""}
+                disabled={!!busy}
+                onChange={(e) => setChromeDir(e.target.value)}
+              />
+              <Button
+                variant="text"
+                disabled={!!busy}
+                onClick={() => save({ chromeUserDataDir: chromeDir.trim() })}
+              >
+                Save path
+              </Button>
+            </div>
           </div>
         </section>
 
