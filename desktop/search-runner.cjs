@@ -166,7 +166,7 @@ async function runSearch(
     if (signal?.aborted) throw new Error("Search cancelled");
     if (
       result.jobIds.length >=
-      (search.maxResults || store.settings().maxResults || 30)
+      Math.max(50, search.maxResults || store.settings().maxResults || 30)
     ) {
       task?.({
         message: "Result budget reached. Remaining MCP tools were not run.",
@@ -178,11 +178,42 @@ async function runSearch(
     });
     try {
       const reader = {
-        import: async (url, sig) => {
-          const job = await engine.import(url, sig, task, {
-            persist: false,
-            providerResearch: strategy !== "sources",
-          });
+        import: async (url, sig, _task, { mcpRecord } = {}) => {
+          let job = null;
+          try {
+            job = await engine.import(url, sig, task, {
+              persist: false,
+              providerResearch: false,
+            });
+          } catch (error) {
+            if (sig?.aborted) throw error;
+            if (
+              mcpRecord?.description &&
+              mcpRecord.description.length >= 150 &&
+              mcpRecord.title
+            ) {
+              await require("./discovery.cjs").safeUrl(url);
+              job = require("./core.cjs").JobSchema.parse({
+                title: mcpRecord.title,
+                institution:
+                  mcpRecord.institution || "Institution not identified",
+                country: mcpRecord.country || "Unknown",
+                url,
+                applicationUrl: mcpRecord.applicationUrl || url,
+                description: mcpRecord.description,
+                focus: mcpRecord.description.slice(0, 700),
+                deadline: mcpRecord.deadline ?? null,
+                official: !!mcpRecord.official,
+              });
+              job.verification = {
+                status: mcpRecord.browserVerified
+                  ? "browser_verified"
+                  : "mcp_reported",
+                url,
+                at: require("./core.cjs").now(),
+              };
+            } else throw error;
+          }
           if (
             !suitable(job, search) ||
             !advancedMatch(job, search, store.get("profile", "main")?.data)
@@ -190,7 +221,7 @@ async function runSearch(
             return null;
           if (
             new Set(result.jobIds).size >=
-            (search.maxResults || store.settings().maxResults || 30)
+            Math.max(50, search.maxResults || store.settings().maxResults || 30)
           )
             return null;
           const saved = discovery.save(

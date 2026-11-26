@@ -432,12 +432,12 @@ function listingLinks(html, url) {
       const u = new URL($(el).attr("href"), url);
       if (u.protocol !== "https:" || u.hostname !== new URL(url).hostname)
         return;
-      const target = u.pathname;
+      const target = u.pathname + u.search;
       if (
-        /(?:\/jobs?\/[^/]+|\/vacanc[^/]*\/|\/position[s]?\/|\/display-job\/|\/ledige-stillinger\/stilling\/|\/Offres\/|\/en\/jobs\/\d|\/available-jobs\/job|\/details\.cfm|\/job-detail\/|\/stellenangebote--|\/stellenangebot\/|\/offre[^/]*\/|\/lediga-jobb\/|\/annonser\/\d|\/ajo\/jobs\/\d|^\/\d{5,}\/?$)/i.test(
+        /(?:\/jobs?\/[^/]+|\/viewjob|\/rc\/clk|\/jobs\/view\/|\/job-listing\/|\/partner\/jobListing|\/unijobs\/listing\/|\/ad\/[^/]+|\/vacanc[^/]*\/|\/position[s]?\/|\/display-job\/|\/ledige-stillinger\/stilling\/|\/Offres\/|\/en\/jobs\/\d|\/available-jobs\/job|\/details\.cfm|\/job-detail\/|\/stellenangebote--|\/stellenangebot\/|\/offre[^/]*\/|\/lediga-jobb\/|\/annonser\/\d|\/ajo\/jobs\/\d|^\/\d{5,}\/?$)/i.test(
           target,
         ) &&
-        label.length > 12 &&
+        label.length > 10 &&
         !/privacy|cookie|contact|sign in|register|job alert|search jobs|browse jobs|all jobs/i.test(
           label,
         )
@@ -528,9 +528,9 @@ class Discovery {
     url,
     signal,
     task,
-    { persist = true, providerResearch = true } = {},
+    { persist = true, providerResearch = true, mcpRecord = null } = {},
   ) {
-    await safeUrl(url);
+    await (this.validateUrl || safeUrl)(url);
     if (
       this.store.settings().cloudConsent &&
       providerResearch &&
@@ -571,29 +571,68 @@ class Discovery {
       message: "Checking the listing URL and source access rules",
       progress: 10,
     });
-    const page = await (this.fetchPage || fetchPage)(url, signal);
-    task?.({
-      message: "Page received. Extracting employer, requirements and deadline",
-      progress: 60,
-    });
-    const source =
-      SOURCES.find(
-        (s) => new URL(page.url).hostname === new URL(s.base).hostname,
-      ) || {};
-    const job = extractListing(page.html, page.url, source);
-    if (job.description.length < 150)
-      throw new Error(
-        "This page does not contain a readable job description. Paste the listing text using Add manually.",
-      );
-    if (signal?.aborted) throw new Error("Listing import cancelled");
-    const saved = persist
-      ? this.save(job, source.name || "Official link import").job
-      : job;
-    task?.({
-      message: `Listing ${persist ? "saved" : "read"}: ${saved.title}`,
-      progress: 95,
-    });
-    return saved;
+    try {
+      const page = await (this.fetchPage || fetchPage)(url, signal);
+      task?.({
+        message: "Page received. Extracting employer, requirements and deadline",
+        progress: 60,
+      });
+      const source =
+        SOURCES.find(
+          (s) => new URL(page.url).hostname === new URL(s.base).hostname,
+        ) || {};
+      let job = extractListing(page.html, page.url, source);
+      if (job.description.length < 150 && typeof this.renderPage === "function") {
+        try {
+          const rendered = await this.renderPage(page.url, signal);
+          if (rendered?.html)
+            job = extractListing(rendered.html, rendered.url, source);
+        } catch {}
+      }
+      if (job.description.length < 150)
+        throw new Error(
+          "This page does not contain a readable job description. Paste the listing text using Add manually.",
+        );
+      if (signal?.aborted) throw new Error("Listing import cancelled");
+      const saved = persist
+        ? this.save(job, source.name || "Official link import").job
+        : job;
+      task?.({
+        message: `Listing ${persist ? "saved" : "read"}: ${saved.title}`,
+        progress: 95,
+      });
+      return saved;
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      if (
+        mcpRecord?.description &&
+        mcpRecord.description.length >= 150 &&
+        mcpRecord.title
+      ) {
+        const job = JobSchema.parse({
+          title: mcpRecord.title,
+          institution: mcpRecord.institution || "Institution not identified",
+          country: mcpRecord.country || "Unknown",
+          url,
+          applicationUrl: mcpRecord.applicationUrl || url,
+          description: mcpRecord.description,
+          focus: mcpRecord.description.slice(0, 700),
+          deadline: mcpRecord.deadline ?? null,
+          official: !!mcpRecord.official,
+        });
+        job.verification = {
+          status: mcpRecord.browserVerified
+            ? "browser_verified"
+            : "mcp_reported",
+          url,
+          at: now(),
+        };
+        return persist
+          ? this.save(job, "Chrome portal MCP import").job
+          : job;
+      }
+      throw error;
+    }
   }
   async research(request, task, signal) {
     const pages = new Map();
@@ -1078,6 +1117,20 @@ class Discovery {
         const page = result.page;
         const pages = result.pages || [page];
         let links = pages.flatMap((p) => listingLinks(p.html, p.url));
+        if (
+          !links.length &&
+          search.browserMode !== "http" &&
+          source.access !== "manual" &&
+          typeof this.renderPage === "function"
+        ) {
+          try {
+            const rendered = await this.renderPage(page.url, signal);
+            if (rendered?.html) {
+              pages.push(rendered);
+              links = pages.flatMap((p) => listingLinks(p.html, p.url));
+            }
+          } catch {}
+        }
         const embedded = pages.flatMap((p) =>
           extractJsonLd(cheerio.load(p.html)),
         );

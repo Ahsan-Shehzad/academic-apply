@@ -357,6 +357,159 @@ test("ACP cancellation clears the pending prompt promptly without shutting down 
     rpc.close();
   }
 });
+test("ACP skips redundant configuration when defaults match, deduplicates toolCallId limits, permits queries/portal tools, and marks timeout unhealthy", async () => {
+  const fixture = fakeACP();
+  const rpc = new AntigravityACP("fixture", os.tmpdir(), fixture.launch);
+  try {
+    await rpc.init();
+    const session = {
+      sessionId: "s-preconfigured",
+      configOptions: [
+        {
+          id: "model",
+          category: "model",
+          currentValue: "gemini-example",
+          options: [{ value: "gemini-example", name: "Example" }],
+        },
+        {
+          id: "thought_level",
+          category: "thought_level",
+          currentValue: "medium",
+          options: [{ value: "medium", name: "Medium" }],
+        },
+      ],
+    };
+    await rpc.configure(session, "gemini-example", "medium");
+    assert.equal(
+      fixture.calls.filter((c) => c.method === "session/set_config_option")
+        .length,
+      0,
+    );
+
+    const bridge = { mcpServers: [] };
+    rpc.sessionPolicies.set("s-preconfigured", {
+      tools: bridge,
+      webSearch: true,
+    });
+    const portalAllowed = await rpc.authorize({
+      sessionId: "s-preconfigured",
+      toolCall: {
+        title: "Run mcp_academicapply_portal_read_public_page",
+        rawInput: { url: "http://example.com/non-https" },
+      },
+      options: [{ kind: "allow_always", optionId: "always" }],
+    });
+    assert.equal(portalAllowed, "always");
+
+    const queriesAllowed = await rpc.authorize({
+      sessionId: "s-preconfigured",
+      toolCall: {
+        kind: "search",
+        title: "Search Web",
+        rawInput: { queries: ["academic positions"] },
+      },
+      options: [{ kind: "allow_once", optionId: "once" }],
+    });
+    assert.equal(queriesAllowed, "once");
+
+    await assert.rejects(
+      rpc.prompt(session, "WAIT", { timeout: 20 }, () => {}, () => {}),
+      /timed out/,
+    );
+    assert.equal(rpc.unhealthy, true);
+  } finally {
+    rpc.close();
+  }
+});
+test("ACP prompt deduplicates repeated toolCallId updates against webActionLimit", async () => {
+  const launch = () => {
+    const c = new EventEmitter();
+    c.stdin = new PassThrough();
+    c.stdout = new PassThrough();
+    c.stderr = new PassThrough();
+    c.kill = () => c.emit("exit", 0);
+    c.stdin.on("data", (data) => {
+      for (const line of data.toString().trim().split("\n")) {
+        const m = JSON.parse(line);
+        if (m.method === "initialize")
+          setImmediate(() =>
+            c.stdout.write(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: m.id,
+                result: { protocolVersion: 1 },
+              }) + "\n",
+            ),
+          );
+        if (m.method === "session/new")
+          setImmediate(() =>
+            c.stdout.write(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: m.id,
+                result: { sessionId: "s-dedup" },
+              }) + "\n",
+            ),
+          );
+        if (m.method === "session/prompt") {
+          for (let i = 0; i < 20; i++)
+            c.stdout.write(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                method: "session/update",
+                params: {
+                  sessionId: "s-dedup",
+                  update: {
+                    sessionUpdate: "tool_call",
+                    toolCallId: "same-call-id",
+                    title: "Search",
+                  },
+                },
+              }) + "\n",
+            );
+          c.stdout.write(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              method: "session/update",
+              params: {
+                sessionId: "s-dedup",
+                update: {
+                  sessionUpdate: "agent_message_chunk",
+                  content: { type: "text", text: "OK" },
+                },
+              },
+            }) + "\n",
+          );
+          setImmediate(() =>
+            c.stdout.write(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: m.id,
+                result: { stopReason: "end_turn" },
+              }) + "\n",
+            ),
+          );
+        }
+      }
+    });
+    return c;
+  };
+  const rpc = new AntigravityACP("fixture", os.tmpdir(), launch);
+  try {
+    await rpc.init();
+    const s = await rpc.newSession({ webSearch: true });
+    const out = await rpc.prompt(
+      s,
+      "go",
+      { webSearch: true, webActionLimit: 12, timeout: 1000 },
+      () => {},
+      () => {},
+    );
+    assert.equal(out, "OK");
+  } finally {
+    rpc.close();
+  }
+});
 test("separate requested recommendation letters require distinct supplied files", () => {
   const pkg = {
     requirements: [

@@ -2,15 +2,16 @@
 
 | Version | Purpose | Installer |
 | --- | --- | --- |
-| 1.9.0 | Current release | [Windows x64 setup](https://github.com/Ahsan-Shehzad/academic-apply/releases/download/v1.9.0/AcademicApply-Setup-1.9.0.exe) |
-| 1.8.0 | Previous release for rollback | [Windows x64 setup](https://github.com/Ahsan-Shehzad/academic-apply/releases/download/v1.8.0/AcademicApply-Setup-1.8.0.exe) |
+| 1.9.2 | Current release | [Windows x64 setup](https://github.com/Ahsan-Shehzad/academic-apply/releases/download/v1.9.2/AcademicApply-Setup-1.9.2.exe) |
+| 1.9.0 | Previous release | [Windows x64 setup](https://github.com/Ahsan-Shehzad/academic-apply/releases/download/v1.9.0/AcademicApply-Setup-1.9.0.exe) |
+| 1.8.0 | Earlier release for rollback | [Windows x64 setup](https://github.com/Ahsan-Shehzad/academic-apply/releases/download/v1.8.0/AcademicApply-Setup-1.8.0.exe) |
 
-Matching source ZIP archives and installer blockmaps are retained alongside these installers. The 1.9.0 installer and prepared source archive contain the web-first full-listing workflow.
+Matching source ZIP archives and installer blockmaps are retained alongside these installers. The 1.9.2 installer and source archive include system-proxy / Antigravity ACP reliability fixes and the built-in Chrome Portal MCP connector for major job portals.
 
 Verify files using [SHA256SUMS.txt](SHA256SUMS.txt):
 
 ```powershell
-Get-FileHash .\release\AcademicApply-Setup-1.9.0.exe -Algorithm SHA256
+Get-FileHash .\release\AcademicApply-Setup-1.9.2.exe -Algorithm SHA256
 ```
 
 See [VALIDATION.md](VALIDATION.md) for delivery checks. Installers are unsigned.

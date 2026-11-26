@@ -71,6 +71,13 @@ export default function Connectors({
           <Button
             variant="outlined"
             disabled={!!busy}
+            onClick={() => call("connector.openPortals", {})}
+          >
+            Sign in to portals (Chrome)
+          </Button>
+          <Button
+            variant="outlined"
+            disabled={!!busy}
             onClick={() => call("connector.testAll")}
           >
             Test all connectors
@@ -191,7 +198,8 @@ export default function Connectors({
             </div>
             <p>
               {c.type === "mcp"
-                ? "Remote MCP · " + c.protocol
+                ? (c.local ? "Built-in Chrome MCP · " : "Remote MCP · ") +
+                  c.protocol
                 : "Bundled adapter · " +
                   c.region +
                   (c.countries ? " · " + c.countries.join(", ") : "")}
@@ -309,12 +317,29 @@ export default function Connectors({
               )}
               {c.type === "bundled" && (
                 <Button
-                  onClick={() => call("browser.open", { url: c.base + "/" })}
+                  onClick={() =>
+                    ["manual", "needs_browser", "restricted"].includes(
+                      c.status || c.access || "",
+                    )
+                      ? call("connector.openPortals", { portals: [c.id] })
+                      : call("browser.open", { url: c.base + "/" })
+                  }
                 >
-                  Open in browser
+                  {["manual", "needs_browser"].includes(c.status || c.access || "")
+                    ? "Sign in / Open in Chrome"
+                    : "Open in browser"}
                 </Button>
               )}
-              {c.type === "mcp" && (
+              {c.type === "mcp" && c.local && (
+                <Button
+                  variant="outlined"
+                  disabled={!!busy}
+                  onClick={() => call("connector.openPortals", {})}
+                >
+                  Sign in to portals (Chrome)
+                </Button>
+              )}
+              {c.type === "mcp" && !c.local && (
                 <Button
                   onClick={() => {
                     setEditing(c.id);

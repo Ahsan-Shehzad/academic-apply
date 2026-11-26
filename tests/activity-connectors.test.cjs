@@ -8,8 +8,11 @@ const { Tasks } = require("../desktop/tasks.cjs");
 const {
   Connectors,
   resultLinks,
+  resultRecords,
   readTool,
 } = require("../desktop/connectors.cjs");
+const { PortalMcpServer } = require("../desktop/portal-mcp.cjs");
+const { listingLinks, Discovery } = require("../desktop/discovery.cjs");
 const {
   McpClient,
   headerBindings,
@@ -429,4 +432,169 @@ test("interactive browser work remains responsive during a long background searc
     release?.();
     f.cleanup();
   }
+});
+
+test("built-in portal MCP auto-configures, connects over loopback HTTP, and enriches blocked portal records", async () => {
+  const f = await fixture();
+  let portalMcp;
+  try {
+    portalMcp = new PortalMcpServer({
+      searchFn: async (portalId, args) => ({
+        portal: portalId,
+        gated: portalId === "glassdoor",
+        warnings: portalId === "glassdoor" ? ["Sign in needed"] : [],
+        jobs:
+          portalId === "linkedin"
+            ? [
+                {
+                  url: "https://www.linkedin.com/jobs/view/987654321/",
+                  title: "Assistant Professor of Speech AI",
+                  institution: "Example University",
+                  country: args.location || "UK",
+                  description:
+                    "Full-time tenure-track faculty role researching speech synthesis, automatic speech recognition, neural audio codecs, and spoken dialogue systems in the Department of Computer Science.",
+                  applicationUrl:
+                    "https://www.linkedin.com/jobs/view/987654321/",
+                  browserVerified: true,
+                },
+              ]
+            : portalId === "indeed"
+              ? [
+                  {
+                    url: "https://www.indeed.com/viewjob?jk=abc123def456",
+                    title: "Research Scientist in NLP",
+                    institution: "AI Lab",
+                    country: "US",
+                    description:
+                      "Research Scientist working on speech recognition, multimodal LLMs, large-scale conversational AI systems, and open-source academic collaborations across partner universities.",
+                    applicationUrl:
+                      "https://www.indeed.com/viewjob?jk=abc123def456",
+                    browserVerified: false,
+                  },
+                ]
+              : [],
+      }),
+    });
+
+    const connectors = new Connectors(f.store, { portalMcp });
+    const catalog = connectors.catalog();
+    const builtIn = catalog.find((c) => c.id === "mcp-portal-browser");
+    assert.ok(builtIn);
+    assert.equal(builtIn.local, true);
+    assert.ok(builtIn.tools.some((t) => t.name === "search_all_major_portals"));
+    assert.ok(builtIn.tools.some((t) => t.name === "search_linkedin_jobs"));
+
+    const savedSearch = f.store.list("searches")[0];
+    assert.ok(
+      savedSearch.mcpTools.some(
+        (t) =>
+          t.connectorId === "mcp-portal-browser" &&
+          t.tool === "search_all_major_portals",
+      ),
+    );
+
+    await connectors.test("mcp-portal-browser");
+    const discovery = new Discovery(f.store, null, connectors);
+    discovery.validateUrl = async () => {};
+    discovery.fetchPage = async () => {
+      throw new Error("Source blocked with HTTP 403");
+    };
+    const runResult = await connectors.run(
+      "mcp-portal-browser",
+      "search_all_major_portals",
+      { query: "speech AI", portals: ["linkedin", "indeed", "glassdoor"] },
+      discovery,
+    );
+    assert.equal(runResult.jobIds.length, 2);
+    assert.equal(runResult.failed, 0);
+    const savedLinkedIn = f.store
+      .list("jobs")
+      .find((j) => j.url.includes("987654321"));
+    assert.equal(savedLinkedIn.title, "Assistant Professor of Speech AI");
+    assert.equal(savedLinkedIn.verification?.status, "browser_verified");
+    const savedIndeed = f.store
+      .list("jobs")
+      .find((j) => j.url.includes("abc123def456"));
+    assert.equal(savedIndeed.verification?.status, "mcp_reported");
+
+    const parsedRecords = resultRecords({
+      structuredContent: {
+        jobs: [
+          {
+            url: "https://www.higheredjobs.com/details.cfm?JobCode=178999",
+            title: "Lecturer in AI",
+            institution: "State University",
+          },
+        ],
+      },
+    });
+    assert.equal(parsedRecords.length, 1);
+    assert.equal(parsedRecords[0].title, "Lecturer in AI");
+  } finally {
+    await portalMcp?.close();
+    f.cleanup();
+  }
+});
+
+test("listingLinks extracts major job portal vacancy URLs and portal MCP detects login walls", async () => {
+  const cases = [
+    [
+      "https://www.linkedin.com/jobs/search/?keywords=ai",
+      '<a href="/jobs/view/1234567890/">Assistant Professor of Machine Learning</a>',
+      "linkedin.com/jobs/view/1234567890",
+    ],
+    [
+      "https://www.indeed.com/jobs?q=ai",
+      '<a href="/viewjob?jk=fedcba987654">Research Fellow in Speech Processing</a>',
+      "indeed.com/viewjob?jk=fedcba987654",
+    ],
+    [
+      "https://www.glassdoor.com/Job/index.htm",
+      '<a href="/job-listing/ai-researcher-JV_IC1147401_KO0,13.htm">Senior AI Researcher in NLP</a>',
+      "glassdoor.com/job-listing/",
+    ],
+    [
+      "https://www.timeshighereducation.com/unijobs/listings/",
+      '<a href="/unijobs/listing/398112/lecturer-in-data-science/">Lecturer in Data Science</a>',
+      "unijobs/listing/398112",
+    ],
+    [
+      "https://www.higheredjobs.com/search/advanced.cfm",
+      '<a href="/details.cfm?JobCode=179999">Assistant Professor of Computer Vision</a>',
+      "JobCode=179999",
+    ],
+    [
+      "https://academicpositions.com/find-jobs",
+      '<a href="/ad/university-of-oslo/2026/postdoctoral-fellow-in-ai/223344">Postdoctoral Fellow in AI</a>',
+      "academicpositions.com/ad/",
+    ],
+  ];
+  for (const [base, anchor, expected] of cases) {
+    const links = listingLinks(`<html><body>${anchor}</body></html>`, base);
+    assert.ok(links.some((l) => l.url.includes(expected)), `Missing ${expected}`);
+  }
+
+  const mockPage = {
+    url: () => "https://www.linkedin.com/checkpoint/challenge",
+    title: async () => "Sign in to LinkedIn",
+    goto: async () => {},
+    waitForTimeout: async () => {},
+    evaluate: async (fn) => {
+      if (fn.length === 0) return "Sign in to view more jobs. Join now.";
+      return [];
+    },
+    close: async () => {},
+  };
+  const portalMcp = new PortalMcpServer({
+    validateUrl: async () => {},
+    browser: {
+      launch: async () => ({
+        newPage: async () => mockPage,
+      }),
+    },
+  });
+  const res = await portalMcp.scrapePortal("linkedin", "speech AI", "", 5);
+  assert.equal(res.gated, true);
+  assert.equal(res.jobs.length, 0);
+  assert.ok(res.warnings[0].includes("Sign in"));
 });

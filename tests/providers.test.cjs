@@ -11,6 +11,13 @@ const {
   connectionKey,
   psLiteral,
 } = require("../desktop/provider-tools.cjs");
+const {
+  discoverSystemProxy,
+  shouldBypassProxy,
+  proxyEnvPatch,
+  systemFetch,
+} = require("../desktop/source-access.cjs");
+const http = require("node:http");
 
 test("explicit provider override uses its own default model rather than another workflow provider's model", async () => {
   const f = fixture();
@@ -256,5 +263,113 @@ test("large native browser handoffs retain complete context without exceeding Wi
     assert.ok(!JSON.stringify(captured).includes(prompt));
   } finally {
     f.cleanup();
+  }
+});
+
+test("Providers.getACP recycles unhealthy or timed-out ACP servers", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "academic-acp-recycle-"));
+  let spawns = 0;
+  const launch = () => {
+    spawns++;
+    const c = new EventEmitter();
+    c.stdin = new PassThrough();
+    c.stdout = new PassThrough();
+    c.stderr = new PassThrough();
+    c.kill = () => c.emit("exit", 0);
+    c.stdin.on("data", (data) => {
+      for (const line of data.toString().trim().split("\n")) {
+        const m = JSON.parse(line);
+        if (m.method === "initialize")
+          setImmediate(() =>
+            c.stdout.write(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: m.id,
+                result: { protocolVersion: 1 },
+              }) + "\n",
+            ),
+          );
+      }
+    });
+    return c;
+  };
+  const store = {
+    root,
+    settings: () => ({ provider: "antigravity", models: {}, providerPaths: {} }),
+    get: () => null,
+    put: () => {},
+  };
+  const p = new Providers(store, () => {}, { spawn: launch });
+  try {
+    const first = await p.getACP("fixture.exe");
+    assert.equal(spawns, 1);
+    const same = await p.getACP("fixture.exe");
+    assert.equal(same, first);
+    assert.equal(spawns, 1);
+    first.unhealthy = true;
+    const recycled = await p.getACP("fixture.exe");
+    assert.notEqual(recycled, first);
+    assert.equal(spawns, 2);
+  } finally {
+    p.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("system proxy discovery, bypass rules and HTTP proxy routing work with local bypass", async () => {
+  const regOut = [
+    "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings",
+    "    ProxyEnable    REG_DWORD    0x1",
+    "    ProxyServer    REG_SZ    127.0.0.1:1080",
+    "    ProxyOverride    REG_SZ    <local>;localhost;127.0.0.1;*.internal.test",
+  ].join("\r\n");
+  const discovered = discoverSystemProxy({
+    env: {},
+    platform: "win32",
+    readRegistry: () => regOut,
+    forceRefresh: true,
+  });
+  assert.equal(discovered.url, "http://127.0.0.1:1080");
+  assert.equal(shouldBypassProxy("127.0.0.1", discovered.bypass), true);
+  assert.equal(shouldBypassProxy("localhost", discovered.bypass), true);
+  assert.equal(shouldBypassProxy("intranet", discovered.bypass), true);
+  assert.equal(shouldBypassProxy("app.internal.test", discovered.bypass), true);
+  assert.equal(shouldBypassProxy("example.com", discovered.bypass), false);
+  const envPatch = proxyEnvPatch(discovered, {});
+  assert.equal(envPatch.HTTPS_PROXY, "http://127.0.0.1:1080");
+  assert.ok(envPatch.NO_PROXY.includes("127.0.0.1"));
+
+  let proxiedUrl = null;
+  const proxyServer = http.createServer((req, res) => {
+    proxiedUrl = req.url;
+    res.writeHead(200, { "Content-Type": "text/plain" });
+    res.end("via-proxy");
+  });
+  await new Promise((resolve) => proxyServer.listen(0, "127.0.0.1", resolve));
+  const savedEnv = {
+    HTTP_PROXY: process.env.HTTP_PROXY,
+    http_proxy: process.env.http_proxy,
+    HTTPS_PROXY: process.env.HTTPS_PROXY,
+    https_proxy: process.env.https_proxy,
+    NO_PROXY: process.env.NO_PROXY,
+    no_proxy: process.env.no_proxy,
+  };
+  try {
+    delete process.env.https_proxy;
+    delete process.env.HTTPS_PROXY;
+    delete process.env.http_proxy;
+    delete process.env.no_proxy;
+    process.env.HTTP_PROXY = `http://127.0.0.1:${proxyServer.address().port}`;
+    process.env.NO_PROXY = "localhost,127.0.0.1";
+    const res = await systemFetch("http://example.invalid/vacancy");
+    assert.equal(res.status, 200);
+    assert.equal(await res.text(), "via-proxy");
+    assert.equal(proxiedUrl, "http://example.invalid/vacancy");
+  } finally {
+    for (const [key, val] of Object.entries(savedEnv)) {
+      if (val === undefined) delete process.env[key];
+      else process.env[key] = val;
+    }
+    proxyServer.close();
   }
 });

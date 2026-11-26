@@ -33,6 +33,8 @@ const { Tasks, dueSearches, scheduleAfterRun } = require("./tasks.cjs");
 const { taskSummary } = require("./task-summary.cjs");
 const { installScheduler, removeScheduler } = require("./scheduler.cjs");
 const { Connectors } = require("./connectors.cjs");
+const { PortalMcpServer } = require("./portal-mcp.cjs");
+const { PublicPageBrowser } = require("./public-page-browser.cjs");
 const { BrowserWorkspace } = require("./browser-workspace.cjs");
 const { ApplicationBrowser } = require("./application-browser.cjs");
 const { COUNTRY_GROUPS } = require("./country-groups.cjs");
@@ -66,6 +68,8 @@ let window = null,
   browser,
   tasks,
   connectors,
+  portalMcp,
+  publicRenderer,
   browserWorkspace,
   applicationBrowser,
   quitting = false;
@@ -1120,6 +1124,14 @@ const handlers = {
       { connectorId, searchId: search.id },
     );
   },
+  "connector.openPortals": (args) =>
+    tasks.track("browser", "Open portal sign-in tabs in Chrome", () =>
+      portalMcp.openPortalsForLogin(
+        Array.isArray(args.portals) && args.portals.length
+          ? z.array(z.string().max(80)).max(12).parse(args.portals)
+          : undefined,
+      ),
+    ),
   "connector.run": (args) =>
     tasks.start(
       "connector-search",
@@ -1327,7 +1339,11 @@ if (!app.requestSingleInstanceLock()) {
     .then(async () => {
       store = await Store.open(app.getPath("userData"));
       providers = new Providers(store, emit);
+      browser = new Browser(store, providers, emit);
+      portalMcp = new PortalMcpServer({ browser });
+      publicRenderer = new PublicPageBrowser();
       connectors = new Connectors(store, {
+        portalMcp,
         encrypt: (token) => {
           if (!safeStorage.isEncryptionAvailable())
             throw new Error("Windows secure token storage is unavailable");
@@ -1337,8 +1353,8 @@ if (!app.requestSingleInstanceLock()) {
           safeStorage.decryptString(Buffer.from(value, "base64")),
       });
       discovery = new Discovery(store, providers, connectors);
+      discovery.renderPage = (url, signal) => publicRenderer.read(url, signal);
       documents = new Documents(store, providers);
-      browser = new Browser(store, providers, emit);
       applicationBrowser = new ApplicationBrowser(browser, store, providers);
       browserWorkspace = new BrowserWorkspace(
         browser,
@@ -1430,6 +1446,8 @@ if (!app.requestSingleInstanceLock()) {
     if (quitting) return;
     quitting = true;
     providers?.close();
+    portalMcp?.close().catch(() => {});
+    publicRenderer?.close().catch(() => {});
     browser?.close().catch(() => {});
     store?.close();
   });

@@ -35,14 +35,24 @@ const readTool = (tool) =>
   (tool.annotations?.readOnlyHint === true ||
     /^(search|find|list|fetch|get|read)(?:[_./-]|[A-Z]|$)/.test(tool.name));
 
-function resultLinks(result) {
+function resultRecords(result) {
   if (!result || typeof result !== "object")
     throw new Error("MCP returned no tool result");
 
-  if (result.isError)
+  if (result.isError) {
+    const detail = (result.content || [])
+      .map((item) => (item?.type === "text" ? String(item.text || "") : ""))
+      .filter(Boolean)
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 240);
     throw new Error(
-      "The MCP tool reported an error. Check its configuration and arguments.",
+      detail
+        ? `The MCP tool reported an error: ${detail}`
+        : "The MCP tool reported an error. Check its configuration and arguments.",
     );
+  }
 
   const blocks = [];
 
@@ -57,19 +67,20 @@ function resultLinks(result) {
       } catch {}
     }
 
-  const urls = new Set();
+  const byUrl = new Map();
 
   function walk(value, depth = 0) {
-    if (!value || depth > 6 || urls.size >= 50) return;
+    if (!value || depth > 6 || byUrl.size >= 60) return;
 
     if (Array.isArray(value)) {
-      for (const item of value.slice(0, 100)) walk(item, depth + 1);
+      for (const item of value.slice(0, 120)) walk(item, depth + 1);
 
       return;
     }
 
     if (typeof value !== "object") return;
 
+    let url = "";
     for (const key of [
       "url",
 
@@ -83,8 +94,38 @@ function resultLinks(result) {
 
       "link",
     ])
-      if (typeof value[key] === "string" && value[key].startsWith("https://"))
-        urls.add(value[key]);
+      if (typeof value[key] === "string" && value[key].startsWith("https://")) {
+        url = value[key];
+        break;
+      }
+
+    if (url && !byUrl.has(url)) {
+      byUrl.set(url, {
+        url,
+        ...(typeof value.title === "string" ? { title: value.title } : {}),
+        ...(typeof value.institution === "string"
+          ? { institution: value.institution }
+          : typeof value.company === "string"
+            ? { institution: value.company }
+            : {}),
+        ...(typeof value.country === "string"
+          ? { country: value.country }
+          : {}),
+        ...(typeof value.description === "string"
+          ? { description: value.description }
+          : {}),
+        ...(typeof value.deadline === "string" || value.deadline === null
+          ? { deadline: value.deadline }
+          : {}),
+        ...(typeof value.applicationUrl === "string"
+          ? { applicationUrl: value.applicationUrl }
+          : {}),
+        ...(typeof value.official === "boolean"
+          ? { official: value.official }
+          : {}),
+        ...(value.browserVerified ? { browserVerified: true } : {}),
+      });
+    }
 
     for (const key of [
       "jobs",
@@ -104,7 +145,11 @@ function resultLinks(result) {
 
   blocks.forEach((block) => walk(block));
 
-  return [...urls].slice(0, 20);
+  return [...byUrl.values()].slice(0, 60);
+}
+
+function resultLinks(result) {
+  return resultRecords(result).map((r) => r.url);
 }
 
 class Connectors {
@@ -121,9 +166,12 @@ class Connectors {
 
     this.decrypt = options.decrypt;
 
+    this.portalMcp = options.portalMcp || null;
+
     this.createClient =
       options.createClient ||
-      ((record, token) => new McpClient(record, { token }));
+      ((record, token) =>
+        new McpClient(record, { token, allowLocal: !!record.local }));
 
     if (!store.get("metadata", "connectors-v1")) {
       const selected = new Set(
@@ -154,6 +202,52 @@ class Connectors {
         });
 
       store.put("metadata", { id: "source-catalog-v2", migratedAt: now() });
+    }
+
+    if (this.portalMcp) this.ensurePortalMcp();
+  }
+
+  ensurePortalMcp() {
+    const id = "mcp-portal-browser";
+    const existing = this.store.get("connectors", id);
+    const tools = this.portalMcp.tools().map((t) => ({
+      name: t.name,
+      description: String(t.description || "").slice(0, 1000),
+      inputSchema: t.inputSchema || { type: "object" },
+    }));
+    this.store.put("connectors", {
+      ...existing,
+      id,
+      name: "AcademicApply Portal Browser MCP (LinkedIn, Indeed, Glassdoor & Academic Portals)",
+      endpoint: existing?.endpoint || "http://127.0.0.1:0/mcp",
+      protocol: "2025-11-25",
+      type: "mcp",
+      local: true,
+      enabled: existing ? existing.enabled !== false : true,
+      installedAt: existing?.installedAt || now(),
+      tools,
+      status: existing?.status === "error" ? "error" : "available",
+      message:
+        existing?.message ||
+        "Built-in Chrome MCP ready for LinkedIn, Indeed, Glassdoor, HigherEdJobs, THE, AcademicPositions, Interfolio, ResearchGate and Seek. Sign in once in Chrome for gated portals.",
+    });
+    if (!this.store.get("metadata", "portal-mcp-v1")) {
+      for (const search of this.store.list("searches")) {
+        const mcpTools = [...(search.mcpTools || [])];
+        if (!mcpTools.some((t) => t.connectorId === id)) {
+          mcpTools.push({
+            connectorId: id,
+            tool: "search_all_major_portals",
+            arguments: {
+              query: "{{keywords}}",
+              location: "{{countries}}",
+              maxResults: 25,
+            },
+          });
+          this.store.put("searches", { ...search, mcpTools });
+        }
+      }
+      this.store.put("metadata", { id: "portal-mcp-v1", migratedAt: now() });
     }
   }
 
@@ -359,7 +453,13 @@ class Connectors {
     };
   }
 
-  client(record) {
+  async client(record) {
+    if (record.local && this.portalMcp) {
+      const started = await this.portalMcp.start();
+      const updated = { ...record, endpoint: started.endpoint };
+      this.store.put("connectors", updated);
+      return this.createClient(updated, started.token);
+    }
     const secret = this.store.get("connectorSecrets", record.id);
 
     const token = secret ? this.decrypt(secret.encrypted) : "";
@@ -378,7 +478,7 @@ class Connectors {
       if (record.type === "mcp") {
         task?.({ message: "Connecting to the MCP endpoint", progress: 15 });
 
-        const client = this.client(record);
+        const client = await this.client(record);
 
         try {
           await client.connect(signal);
@@ -502,7 +602,7 @@ class Connectors {
     if (!record?.enabled || record.type !== "mcp")
       throw new Error("Enable an MCP connector first");
 
-    const client = this.client(record);
+    const client = await this.client(record);
 
     try {
       task?.({ message: "Checking current MCP research tools", progress: 5 });
@@ -524,9 +624,9 @@ class Connectors {
         signal,
       );
 
-      const links = resultLinks(result);
+      const records = resultRecords(result);
 
-      if (!links.length)
+      if (!records.length)
         throw new Error(
           "No structured vacancy URLs were returned. The tool must return jobs/results with HTTPS url fields.",
         );
@@ -536,17 +636,19 @@ class Connectors {
       let failed = 0,
         skipped = 0;
 
-      for (const [index, url] of links.entries()) {
+      for (const [index, entry] of records.entries()) {
         if (signal?.aborted) throw new Error("Connector search cancelled");
 
         task?.({
-          message: `Verifying vacancy ${index + 1} of ${links.length}`,
+          message: `Verifying vacancy ${index + 1} of ${records.length}`,
 
-          progress: 30 + Math.round((index / links.length) * 60),
+          progress: 30 + Math.round((index / records.length) * 60),
         });
 
         try {
-          const job = await discovery.import(url, signal);
+          const job = await discovery.import(entry.url, signal, task, {
+            mcpRecord: entry,
+          });
 
           if (job) jobIds.push(job.id);
           else skipped++;
@@ -563,7 +665,7 @@ class Connectors {
 
       if (!jobIds.length && !skipped)
         throw new Error(
-          `None of ${links.length} returned pages could be imported. Review the log and try browser import.`,
+          `None of ${records.length} returned pages could be imported. Review the log and try browser import.`,
         );
 
       return {
@@ -582,4 +684,4 @@ class Connectors {
   }
 }
 
-module.exports = { Connectors, resultLinks, readTool };
+module.exports = { Connectors, resultLinks, resultRecords, readTool };

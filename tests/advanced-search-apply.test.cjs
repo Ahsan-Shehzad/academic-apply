@@ -139,6 +139,7 @@ test("MCP criteria substitution preserves JSON structure and only matching retur
       assert.equal(options.providerResearch, false);
       return {
         ...vacancy(),
+        deadline: "2099-12-31",
         url,
         institution: url.endsWith("bad")
           ? "Other Institute"

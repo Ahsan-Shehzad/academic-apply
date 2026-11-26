@@ -8,6 +8,7 @@ const readline = require("node:readline");
 const { EventEmitter } = require("node:events");
 const { AntigravityACP, sessionModels } = require("./antigravity-acp.cjs");
 const { selectedSkills } = require("./provider-skills.cjs");
+const { proxyEnvPatch } = require("./source-access.cjs");
 const { now, parseJson } = require("./core.cjs");
 const {
   parseModels,
@@ -260,6 +261,8 @@ class Providers {
     this.running = new Map();
     this.loginConnections = new Map();
     this.acp = null;
+    this.acpTurnChain = Promise.resolve();
+    this.detectedCache = new Map();
     this.workspace = path.join(store.root, "ai-workspace");
     fs.mkdirSync(this.workspace, { recursive: true });
     for (const provider of ["codex", "antigravity"]) {
@@ -278,34 +281,46 @@ class Providers {
     }
   }
   async detect(provider) {
+    const configured = this.store.settings().providerPaths?.[provider] || "";
+    const cached = this.detectedCache.get(provider);
+    if (
+      cached &&
+      cached.configured === configured &&
+      cached.file &&
+      fs.existsSync(cached.file) &&
+      Date.now() - cached.checkedMs < 300000
+    )
+      return cached.result;
     const errors = [];
-    for (const file of candidates(
-      provider,
-      this.store.settings().providerPaths?.[provider],
-    )) {
+    for (const file of candidates(provider, configured)) {
       try {
         const c = commandSpec(file, ["--version"]);
         const r = await this.exec(c.file, c.args);
-        return {
+        const result = {
           provider,
           file,
           version: r.stdout.trim(),
           status: "installed",
           checkedAt: now(),
         };
+        this.detectedCache.set(provider, {
+          configured,
+          file,
+          checkedMs: Date.now(),
+          result,
+        });
+        return result;
       } catch (e) {
         errors.push(e.message);
       }
     }
+    this.detectedCache.delete(provider);
     return {
       provider,
-      status:
-        errors.length || this.store.settings().providerPaths?.[provider]
-          ? "broken"
-          : "missing",
+      status: errors.length || configured ? "broken" : "missing",
       message: errors.length
         ? errors[0]
-        : this.store.settings().providerPaths?.[provider]
+        : configured
           ? "The configured CLI path does not exist. Correct it or clear the path to auto-detect."
           : "CLI executable not found. Install the official CLI or choose its executable.",
       checkedAt: now(),
@@ -370,16 +385,28 @@ class Providers {
           rpc.close();
         }
       } else {
-        const rpc = await this.getACP(result.file);
-        const session = await rpc.newSession();
-        result.models = sessionModels(session);
-        result.transport = "Persistent ACP · JSON-RPC / stdio";
-        result.serverVersion = rpc.info?.agentInfo?.version;
-        result.efforts =
-          session.configOptions
-            ?.find((o) => o.category === "thought_level")
-            ?.options?.map((o) => o.value) || [];
-        await rpc.release(session.sessionId);
+        await this.enqueueACP(null, async () => {
+          const rpc = await this.getACP(result.file);
+          let session;
+          try {
+            session = await rpc.newSession();
+            result.models = sessionModels(session);
+            result.transport = "Persistent ACP · JSON-RPC / stdio";
+            result.serverVersion = rpc.info?.agentInfo?.version;
+            result.efforts =
+              session.configOptions
+                ?.find((o) => o.category === "thought_level")
+                ?.options?.map((o) => o.value) || [];
+          } catch (error) {
+            if (rpc.unhealthy || /timed out|disconnected|exited/i.test(error.message)) {
+              rpc.close();
+              if (this.acp === rpc) this.acp = null;
+            }
+            throw error;
+          } finally {
+            if (session) await rpc.release(session.sessionId);
+          }
+        });
         result.checks.push({
           name: "Sign-in",
           status: "passed",
@@ -640,30 +667,43 @@ class Providers {
           "Using installed skills: " + skills.map((s) => s.name).join(", "),
       });
     if (provider === "antigravity") {
-      const rpc = await this.getACP(detected.file);
-      const session = await rpc.newSession(options);
-      try {
-        await rpc.configure(session, options.model, options.effort);
-        options.signal?.throwIfAborted();
-        this.emit("ai-progress", {
-          taskId: runId,
-          phase: "Persistent Antigravity ACP connected · isolated task session",
-        });
-        return await rpc.prompt(
-          session,
-          prompt +
-            (skills.length
-              ? "\nRelevant installed skill guidance (application safety and the explicit task take precedence):\n" +
-                skills.map((s) => s.text).join("\n\n")
-              : ""),
-          options,
-          (update) => this.emit("ai-progress", { taskId: runId, ...update }),
-          (cancel) => this.running.set(runId, cancel),
-        );
-      } finally {
-        this.running.delete(runId);
-        await rpc.release(session.sessionId);
-      }
+      return this.enqueueACP(options.signal, async () => {
+        const rpc = await this.getACP(detected.file);
+        let session;
+        try {
+          session = await rpc.newSession(options);
+          await rpc.configure(session, options.model, options.effort);
+          options.signal?.throwIfAborted();
+          this.emit("ai-progress", {
+            taskId: runId,
+            phase:
+              "Persistent Antigravity ACP connected · isolated task session",
+          });
+          return await rpc.prompt(
+            session,
+            prompt +
+              (skills.length
+                ? "\nRelevant installed skill guidance (application safety and the explicit task take precedence):\n" +
+                  skills.map((s) => s.text).join("\n\n")
+                : ""),
+            options,
+            (update) => this.emit("ai-progress", { taskId: runId, ...update }),
+            (cancel) => this.running.set(runId, cancel),
+          );
+        } catch (error) {
+          if (
+            rpc.unhealthy ||
+            /timed out|disconnected|exited/i.test(error.message)
+          ) {
+            rpc.close();
+            if (this.acp === rpc) this.acp = null;
+          }
+          throw error;
+        } finally {
+          this.running.delete(runId);
+          if (session) await rpc.release(session.sessionId);
+        }
+      });
     }
     if (provider === "codex") {
       const rpc = new CodexConnection(
@@ -825,11 +865,36 @@ class Providers {
   cancel(taskId) {
     this.running.get(taskId)?.();
   }
+  enqueueACP(signal, work) {
+    signal?.throwIfAborted();
+    const run = this.acpTurnChain
+      .catch(() => {})
+      .then(async () => {
+        signal?.throwIfAborted();
+        return work();
+      });
+    this.acpTurnChain = run.catch(() => {});
+    return run;
+  }
   async getACP(file) {
-    if (!this.acp || this.acp.closed || this.acpFile !== file) {
+    if (
+      !this.acp ||
+      this.acp.closed ||
+      this.acp.unhealthy ||
+      this.acpFile !== file
+    ) {
       this.acp?.close();
       this.acpFile = file;
-      this.acp = new AntigravityACP(file, this.workspace, this.spawn);
+      const patch = proxyEnvPatch();
+      const env = Object.keys(patch).length
+        ? { ...process.env, ...patch }
+        : undefined;
+      this.acp = new AntigravityACP(
+        file,
+        this.workspace,
+        this.spawn,
+        env ? { env } : undefined,
+      );
     }
     const rpc = this.acp;
     try {
@@ -842,6 +907,7 @@ class Providers {
     }
   }
   invalidateChanged(previous, next) {
+    this.detectedCache.clear();
     for (const provider of ["codex", "antigravity"]) {
       if (connectionKey(previous, provider) === connectionKey(next, provider))
         continue;

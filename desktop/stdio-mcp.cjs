@@ -15,7 +15,7 @@ readline.createInterface({ input: process.stdin }).on("line", async (line) => {
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(request),
-      signal: AbortSignal.timeout(60000),
+      signal: AbortSignal.timeout(120000),
     });
     if (request.id !== undefined) {
       const text = await r.text();

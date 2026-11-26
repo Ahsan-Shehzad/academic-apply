@@ -226,6 +226,7 @@ function createWebHandlers(dependencies) {
                 ? "Links were returned, but native web-search execution was not observed. Full listing verification remains required."
                 : "The provider did not demonstrate working internet search. Try another model/provider.";
           store.put("providers", {
+            id: provider,
             ...store.get("providers", provider),
             webSearchHealth: {
               status,

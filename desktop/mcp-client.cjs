@@ -1,5 +1,6 @@
 "use strict";
 const { safeUrl } = require("./discovery.cjs");
+const { systemFetch } = require("./source-access.cjs");
 function encodeHeader(value) {
   const text = String(value);
   return /^[\x09\x20-\x7e]*$/.test(text) &&
@@ -43,15 +44,21 @@ function headerBindings(schema) {
 class McpClient {
   constructor(config, options = {}) {
     this.config = config;
-    this.fetch = options.fetch || fetch;
+    this.fetch = options.fetch || systemFetch;
     this.validateUrl = options.validateUrl || safeUrl;
+    this.allowLocal = !!(options.allowLocal || config.local);
+    this.timeout = options.timeout || (this.allowLocal ? 300000 : 60000);
     this.token = options.token || "";
     this.counter = 0;
     this.session = null;
     this.bindings = new Map();
   }
   async rpc(method, params = {}, signal, notification = false) {
-    await this.validateUrl(this.config.endpoint);
+    if (this.allowLocal) {
+      const u = new URL(this.config.endpoint);
+      if (u.protocol !== "http:" || u.hostname !== "127.0.0.1")
+        throw new Error("Local MCP endpoint must use 127.0.0.1");
+    } else await this.validateUrl(this.config.endpoint);
     const modern = this.config.protocol !== "2025-11-25";
     const id = ++this.counter;
     const headers = {
@@ -102,8 +109,8 @@ class McpClient {
         params,
       }),
       signal: signal
-        ? AbortSignal.any([signal, AbortSignal.timeout(60000)])
-        : AbortSignal.timeout(60000),
+        ? AbortSignal.any([signal, AbortSignal.timeout(this.timeout)])
+        : AbortSignal.timeout(this.timeout),
     });
     if (!response.ok)
       throw new Error(
