@@ -8,7 +8,9 @@ const {
   Browser,
   chromePath,
   detectChromeProfiles,
+  readDevToolsActivePort,
 } = require("../desktop/browser.cjs");
+const { PublicPageBrowser } = require("../desktop/public-page-browser.cjs");
 const { PortalMcpServer } = require("../desktop/portal-mcp.cjs");
 const { Store } = require("../desktop/store.cjs");
 
@@ -183,5 +185,119 @@ test("Hardened Chrome flags clear navigator.webdriver in automation context", as
   } finally {
     await context.close();
     fs.rmSync(profileDir, { recursive: true, force: true });
+  }
+});
+
+test("Browser.openContext spawns real Chrome via CDP and PublicPageBrowser reuses real Chrome", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "academic-real-chrome-"));
+  const store = await Store.open(root);
+  const browser = new Browser(store, {});
+  try {
+    const context = await browser.launch();
+    assert.ok(browser.cdpBrowser, "Expected connectOverCDP browser instance");
+    assert.ok(browser.chromeProcess, "Expected spawned real Chrome process");
+    assert.equal(browser.attachedExistingChrome, false);
+
+    const page = await context.newPage();
+    await page.setContent("<html><body><h1>Vacancy test</h1></body></html>");
+    const wd = await page.evaluate(() => navigator.webdriver);
+    assert.equal(wd, false);
+    await page.close();
+
+    // Verify PublicPageBrowser routes through real Chrome when provided
+    const mockHtml =
+      "<html><body><main>" + "Research fellow in AI ".repeat(30) + "</main></body></html>";
+    let unrouted = false;
+    let tabClosed = false;
+    const fakeBrowser = {
+      async launch() {
+        return {
+          async newPage() {
+            let currentUrl = "https://example.edu/jobs/1";
+            return {
+              async route(_pat, handler) {
+                this._handler = handler;
+              },
+              async unrouteAll() {
+                unrouted = true;
+              },
+              async goto(url) {
+                currentUrl = url;
+                return { ok: () => true, status: () => 200 };
+              },
+              async waitForFunction() {},
+              url() {
+                return currentUrl;
+              },
+              async content() {
+                return mockHtml;
+              },
+              async close() {
+                tabClosed = true;
+              },
+            };
+          },
+        };
+      },
+    };
+    const publicBrowser = new PublicPageBrowser({
+      browser: fakeBrowser,
+      validateUrl: async () => true,
+    });
+    const rendered = await publicBrowser.read("https://example.edu/jobs/1");
+    assert.equal(rendered.method, "real_chrome");
+    assert.equal(rendered.html, mockHtml);
+    assert.equal(unrouted, true);
+    assert.equal(tabClosed, true);
+  } finally {
+    await browser.close();
+    store.close();
+    fs.rmSync(root, {
+      recursive: true,
+      force: true,
+      maxRetries: 8,
+      retryDelay: 200,
+    });
+  }
+});
+
+test("readDevToolsActivePort parses Chrome DevToolsActivePort and close preserves external Chrome", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "chrome-dt-port-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "academic-ext-close-"));
+  const store = await Store.open(root);
+  try {
+    fs.writeFileSync(
+      path.join(dir, "DevToolsActivePort"),
+      "9222\n/devtools/browser/abc-123\n",
+    );
+    assert.deepEqual(readDevToolsActivePort(dir), {
+      port: 9222,
+      wsPath: "/devtools/browser/abc-123",
+    });
+
+    let cdpBrowserCloseSent = false;
+    let cdpClientClosed = false;
+    const browser = new Browser(store, {});
+    browser.attachedExistingChrome = true;
+    browser.chromeProcess = { killed: false, kill() { throw new Error("Must not kill external Chrome"); } };
+    browser.cdpBrowser = {
+      async newBrowserCDPSession() {
+        return {
+          async send() {
+            cdpBrowserCloseSent = true;
+          },
+        };
+      },
+      async close() {
+        cdpClientClosed = true;
+      },
+    };
+    await browser.close();
+    assert.equal(cdpBrowserCloseSent, false);
+    assert.equal(cdpClientClosed, true);
+  } finally {
+    store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });

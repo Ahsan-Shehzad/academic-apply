@@ -4,6 +4,8 @@ const { packageCoverage } = require("./document-requirements.cjs");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const net = require("node:net");
+const http = require("node:http");
 const { spawn } = require("node:child_process");
 const { chromium } = require("playwright-core");
 const { id, now, hash, parseJson, inside } = require("./core.cjs");
@@ -65,6 +67,86 @@ function defaultChromeUserDataDir() {
     );
   }
   return path.join(os.homedir(), ".config", "google-chrome");
+}
+function freeLoopbackPort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      server.close(() => resolve(address.port));
+    });
+  });
+}
+function readDevToolsActivePort(userDataDir) {
+  try {
+    const lines = fs
+      .readFileSync(path.join(userDataDir, "DevToolsActivePort"), "utf8")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const port = Number(lines[0]);
+    const wsPath = lines[1] || "";
+    if (Number.isInteger(port) && port > 0 && wsPath.startsWith("/")) {
+      return { port, wsPath };
+    }
+  } catch {}
+  return null;
+}
+function canConnectTcp(port, timeoutMs = 450) {
+  return new Promise((resolve) => {
+    const socket = net.createConnection({ host: "127.0.0.1", port });
+    const done = (ok) => {
+      socket.destroy();
+      resolve(ok);
+    };
+    socket.setTimeout(timeoutMs);
+    socket.once("connect", () => done(true));
+    socket.once("timeout", () => done(false));
+    socket.once("error", () => done(false));
+  });
+}
+function fetchCdpVersion(port, timeoutMs = 500) {
+  return new Promise((resolve) => {
+    const req = http.get(
+      `http://127.0.0.1:${port}/json/version`,
+      { timeout: timeoutMs },
+      (res) => {
+        if (res.statusCode !== 200) {
+          res.resume();
+          return resolve(null);
+        }
+        let body = "";
+        res.on("data", (chunk) => {
+          body += chunk;
+        });
+        res.on("end", () => {
+          try {
+            resolve(JSON.parse(body));
+          } catch {
+            resolve(null);
+          }
+        });
+      },
+    );
+    req.on("timeout", () => {
+      req.destroy();
+      resolve(null);
+    });
+    req.on("error", () => resolve(null));
+  });
+}
+async function waitForCdpReady(port, child, timeoutMs = 14000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null) {
+      throw new Error(`Chrome exited early with status ${child.exitCode}`);
+    }
+    const info = await fetchCdpVersion(port, 450);
+    if (info?.webSocketDebuggerUrl) return info;
+    await new Promise((r) => setTimeout(r, 120));
+  }
+  throw new Error("Timed out waiting for Chrome DevTools Protocol");
 }
 function detectChromeProfiles(customUserDataDir = "") {
   const userDataDir =
@@ -353,8 +435,26 @@ class Browser {
     this.providers = providers;
     this.emit = emit;
     this.context = null;
+    this.cdpBrowser = null;
+    this.chromeProcess = null;
+    this.attachedExistingChrome = false;
     this.sessions = new Map();
     this.applicationTabs = new Map();
+  }
+  async attachCdpBrowser(cdpBrowser, attachedExisting, chromeProcess = null) {
+    this.cdpBrowser = cdpBrowser;
+    this.attachedExistingChrome = attachedExisting;
+    this.chromeProcess = chromeProcess;
+    this.context = cdpBrowser.contexts()[0] || (await cdpBrowser.newContext());
+    cdpBrowser.on("disconnected", () => {
+      this.context = null;
+      this.cdpBrowser = null;
+      this.chromeProcess = null;
+      this.attachedExistingChrome = false;
+      this.sessions.clear();
+      this.applicationTabs.clear();
+    });
+    return this.context;
   }
   async launch() {
     if (this.context) return this.context;
@@ -397,7 +497,33 @@ class Browser {
       );
     }
     fs.mkdirSync(target.userDataDir, { recursive: true });
+
+    // 1. If a real Chrome instance already exposes an active DevTools endpoint for this profile, attach directly.
+    const active = readDevToolsActivePort(target.userDataDir);
+    if (active && (await canConnectTcp(active.port))) {
+      try {
+        const versionInfo = await fetchCdpVersion(active.port, 500);
+        const endpoint = versionInfo?.webSocketDebuggerUrl
+          ? `http://127.0.0.1:${active.port}`
+          : `ws://127.0.0.1:${active.port}${active.wsPath}`;
+        const existingBrowser = await chromium.connectOverCDP(endpoint, {
+          timeout: 6000,
+        });
+        return await this.attachCdpBrowser(existingBrowser, true, null);
+      } catch (error) {
+        if (target.mode === "google") {
+          throw new Error(
+            `Google Chrome is running on '${target.profileDirectory}', but DevTools attachment did not complete (${error.message}). Click Allow when Chrome asks for remote-debugging access, or switch Settings to 'Dedicated profile' and click 'Import Chrome sessions'.`,
+          );
+        }
+      }
+    }
+
+    // 2. Otherwise spawn a real Chrome process without Playwright's --remote-debugging-pipe or --enable-automation flags.
+    const port = await freeLoopbackPort();
     const args = [
+      `--user-data-dir=${target.userDataDir}`,
+      `--remote-debugging-port=${port}`,
       "--disable-session-crashed-bubble",
       "--disable-blink-features=AutomationControlled",
       "--no-first-run",
@@ -406,38 +532,33 @@ class Browser {
     if (target.profileDirectory) {
       args.push(`--profile-directory=${target.profileDirectory}`);
     }
+    args.push("about:blank");
+
+    const child = spawn(executablePath, args, {
+      detached: false,
+      stdio: "ignore",
+      windowsHide: false,
+    });
     try {
-      this.context = await chromium.launchPersistentContext(target.userDataDir, {
-        executablePath,
-        headless: false,
-        viewport: null,
-        acceptDownloads: true,
-        args,
-        ignoreDefaultArgs: [
-          "--enable-automation",
-          "--disable-component-update",
-        ],
-      });
+      await waitForCdpReady(port, child, 14000);
+      const cdpBrowser = await chromium.connectOverCDP(
+        `http://127.0.0.1:${port}`,
+        { timeout: 10000 },
+      );
+      return await this.attachCdpBrowser(cdpBrowser, false, child);
     } catch (error) {
-      const msg = String(error?.message || error);
-      if (
-        target.mode === "google" &&
-        /ProcessSingleton|TargetClosedError|existing browser|user data directory|in use/i.test(
-          msg,
-        )
-      ) {
+      try {
+        if (child.exitCode === null) child.kill();
+      } catch {}
+      if (target.mode === "google") {
         throw new Error(
-          `Your Google Chrome profile (${target.profileDirectory}) is currently open in Chrome, so automated browser tasks cannot share its lock simultaneously. Close Chrome windows briefly during automated search/Apply, or switch to 'Dedicated profile' in Settings and click 'Import Chrome sessions'.`,
+          `Could not attach to Google Chrome profile '${target.profileDirectory}'. Modern Chrome blocks external --remote-debugging-port on its default User Data folder. Either enable Remote Debugging inside Chrome (open chrome://inspect/#remote-debugging and keep Chrome open), or switch Settings to 'Dedicated profile' and click 'Import Chrome sessions'.`,
         );
       }
-      throw error;
+      throw new Error(
+        `Could not start real Chrome for AcademicApply (${error.message}). If a Clean Chrome sign-in window is still open on the dedicated profile, close that window and retry.`,
+      );
     }
-    this.context.on("close", () => {
-      this.context = null;
-      this.sessions.clear();
-      this.applicationTabs.clear();
-    });
-    return this.context;
   }
   async openCleanChrome(urls = []) {
     const executablePath = chromePath();
@@ -1124,7 +1245,46 @@ class Browser {
     };
   }
   async close() {
-    await this.context?.close();
+    const proc = this.chromeProcess;
+    const cdp = this.cdpBrowser;
+    const attachedExisting = this.attachedExistingChrome;
+    const ctx = this.context;
+    this.chromeProcess = null;
+    this.cdpBrowser = null;
+    this.attachedExistingChrome = false;
+    this.context = null;
+    this.sessions.clear();
+    this.applicationTabs.clear();
+    const exited =
+      !attachedExisting && proc && proc.exitCode === null
+        ? new Promise((resolve) => proc.once("exit", resolve))
+        : null;
+    if (!attachedExisting && cdp) {
+      try {
+        const browserSession = await cdp.newBrowserCDPSession();
+        await browserSession.send("Browser.close").catch(() => {});
+      } catch {}
+    }
+    if (cdp) {
+      await cdp.close().catch(() => {});
+    } else if (ctx) {
+      await ctx.close().catch(() => {});
+    }
+    if (exited) {
+      await Promise.race([
+        exited,
+        new Promise((r) => setTimeout(r, 2500)),
+      ]);
+      if (proc.exitCode === null) {
+        try {
+          proc.kill();
+        } catch {}
+        await Promise.race([
+          exited,
+          new Promise((r) => setTimeout(r, 1000)),
+        ]);
+      }
+    }
   }
 }
 module.exports = {
@@ -1132,6 +1292,7 @@ module.exports = {
   chromePath,
   defaultChromeUserDataDir,
   detectChromeProfiles,
+  readDevToolsActivePort,
   snapshotPage,
   snapshotHash,
   deterministicAnswers,

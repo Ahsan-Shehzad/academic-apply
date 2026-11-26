@@ -6011,12 +6011,13 @@ function Settings({
             <Divider />
 
             <div>
-              <strong>Chrome profile and portal sign-in</strong>
+              <strong>Chrome profile and real Chrome automation</strong>
               <p className="muted">
-                Chrome: {data.chromeInstalled ? "installed" : "not found"}. To
-                avoid Google &ldquo;This browser or app may not be secure&rdquo;
-                blocks and Cloudflare loops during manual sign-in, portal
-                sign-in opens a clean Chrome window without automation hooks.
+                Chrome: {data.chromeInstalled ? "installed" : "not found"}. All
+                job searches, public-page JS renders, and portal Apply actions
+                run in real Google Chrome via DevTools (CDP) rather than
+                Playwright&apos;s launch pipe, while portal/Google sign-in opens
+                an un-debugged Clean Chrome window.
               </p>
             </div>
 
@@ -6067,13 +6068,16 @@ function Settings({
             </div>
 
             {profileMode === "google" && (
-              <Alert severity="warning">
-                Chrome allows only one process to hold an automated lock on{" "}
-                <code>{selectedProfile}</code> at a time. Keep Chrome closed
-                while running automated portal searches or Apply, or stay on{" "}
-                <strong>Dedicated profile</strong> and click{" "}
-                <strong>Import Chrome sessions</strong> below so you never need
-                to close Chrome during searches.
+              <Alert severity="info">
+                To let AcademicApply attach directly to your running personal
+                Chrome (<code>{selectedProfile}</code>), enable{" "}
+                <strong>Remote debugging</strong> inside{" "}
+                <code>chrome://inspect/#remote-debugging</code> in Chrome and
+                click Allow when prompted. Or use{" "}
+                <strong>Dedicated profile</strong> +{" "}
+                <strong>Import Chrome sessions</strong> below to spawn a real
+                separate Chrome automatically without touching your open Chrome
+                windows.
               </Alert>
             )}
 

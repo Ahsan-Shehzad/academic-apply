@@ -1431,7 +1431,7 @@ if (!app.requestSingleInstanceLock()) {
       providers = new Providers(store, emit);
       browser = new Browser(store, providers, emit);
       portalMcp = new PortalMcpServer({ browser });
-      publicRenderer = new PublicPageBrowser();
+      publicRenderer = new PublicPageBrowser({ browser });
       connectors = new Connectors(store, {
         portalMcp,
         encrypt: (token) => {

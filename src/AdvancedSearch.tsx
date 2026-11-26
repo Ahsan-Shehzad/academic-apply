@@ -190,7 +190,7 @@ export default function AdvancedSearch({
             {[
               ["auto", "Automatic — public HTML, Chrome for JavaScript"],
               ["http", "Public HTML only"],
-              ["headless", "Headless Chrome after public access check"],
+              ["headless", "Real Chrome after public access check"],
             ].map(([value, label]) => (
               <MenuItem key={value} value={value}>
                 {label}
